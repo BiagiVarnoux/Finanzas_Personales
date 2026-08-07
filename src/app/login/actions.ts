@@ -13,10 +13,23 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   // Un respiro artificial para que probar contraseñas al tanteo sea lento.
   await new Promise((resolve) => setTimeout(resolve, 400));
 
-  if (!checkPassword(password)) return { error: "Contraseña incorrecta." };
+  // checkPassword y createSessionToken tiran si faltan las variables de entorno.
+  // Sin esto el usuario solo vería un 500 sin explicación.
+  let token: string;
+  try {
+    if (!checkPassword(password)) return { error: "Contraseña incorrecta." };
+    token = await createSessionToken();
+  } catch (err) {
+    console.error("Login mal configurado:", err);
+    return {
+      error:
+        "El servidor no tiene configuradas APP_PASSWORD y AUTH_SECRET. Cargalas en Vercel y volvé a desplegar.",
+    };
+  }
 
   const store = await cookies();
-  store.set(SESSION_COOKIE, await createSessionToken(), sessionCookieOptions);
+  store.set(SESSION_COOKIE, token, sessionCookieOptions);
+  // redirect() va fuera del try: lanza una excepción propia que no hay que atrapar.
   redirect("/");
 }
 

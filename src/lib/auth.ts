@@ -7,8 +7,9 @@
 export const SESSION_COOKIE = "fp_session";
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 60; // 60 días
 
+/** Se recorta el valor: pegar una variable en un panel web suele arrastrar un salto de línea. */
 function secret(): string {
-  const value = process.env.AUTH_SECRET;
+  const value = process.env.AUTH_SECRET?.trim();
   if (!value) throw new Error("Falta AUTH_SECRET en las variables de entorno.");
   return value;
 }
@@ -49,7 +50,7 @@ export async function verifySessionToken(token: string | undefined): Promise<boo
 }
 
 export function checkPassword(input: string): boolean {
-  const expected = process.env.APP_PASSWORD;
+  const expected = process.env.APP_PASSWORD?.trim();
   if (!expected) throw new Error("Falta APP_PASSWORD en las variables de entorno.");
   return safeEqual(input, expected);
 }
