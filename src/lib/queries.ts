@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { categories, expenses, planItems, products, subcategories } from "@/db/schema";
 import { toNumber } from "./format";
@@ -128,6 +128,14 @@ export async function getFrequentProducts(limit = 8): Promise<ProductRow[]> {
   return rows.map((r) => ({ ...r, lastPrice: toNumber(r.lastPrice) }));
 }
 
+export type SubcategoryTotals = {
+  /** null = gastos de esa categoría que quedaron sin subcategoría */
+  subcategoryId: number | null;
+  name: string;
+  planned: number;
+  spent: number;
+};
+
 export type CategoryTotals = {
   categoryId: number;
   name: string;
@@ -135,6 +143,7 @@ export type CategoryTotals = {
   color: string;
   planned: number;
   spent: number;
+  bySubcategory: SubcategoryTotals[];
 };
 
 export type MonthSummary = {
@@ -144,39 +153,72 @@ export type MonthSummary = {
   byCategory: CategoryTotals[];
 };
 
+/** Clave del mapa de totales: 0 representa "sin subcategoría". */
+function subKey(categoryId: number, subcategoryId: number | null): string {
+  return `${categoryId}:${subcategoryId ?? 0}`;
+}
+
 export async function getMonthSummary(period: string): Promise<MonthSummary> {
   const [cats, spentRows, plannedRows] = await Promise.all([
     getCategories(),
     db
       .select({
         categoryId: expenses.categoryId,
+        subcategoryId: expenses.subcategoryId,
         total: sql<string>`coalesce(sum(${expenses.amount}), 0)`,
       })
       .from(expenses)
       .where(eq(expenses.period, period))
-      .groupBy(expenses.categoryId),
+      .groupBy(expenses.categoryId, expenses.subcategoryId),
     db
       .select({
         categoryId: planItems.categoryId,
+        subcategoryId: planItems.subcategoryId,
         total: sql<string>`coalesce(sum(${planItems.amount}), 0)`,
       })
       .from(planItems)
       .where(eq(planItems.period, period))
-      .groupBy(planItems.categoryId),
+      .groupBy(planItems.categoryId, planItems.subcategoryId),
   ]);
 
-  const spentBy = new Map(spentRows.map((r) => [r.categoryId, toNumber(r.total)]));
-  const plannedBy = new Map(plannedRows.map((r) => [r.categoryId, toNumber(r.total)]));
+  const spentBySub = new Map(
+    spentRows.map((r) => [subKey(r.categoryId, r.subcategoryId), toNumber(r.total)]),
+  );
+  const plannedBySub = new Map(
+    plannedRows.map((r) => [subKey(r.categoryId, r.subcategoryId), toNumber(r.total)]),
+  );
 
   const byCategory = cats
-    .map((c) => ({
-      categoryId: c.id,
-      name: c.name,
-      icon: c.icon,
-      color: c.color,
-      planned: plannedBy.get(c.id) ?? 0,
-      spent: spentBy.get(c.id) ?? 0,
-    }))
+    .map((category) => {
+      // Las subcategorías definidas, más una fila extra para lo que quedó suelto.
+      const buckets: SubcategoryTotals[] = category.subcategories.map((sub) => ({
+        subcategoryId: sub.id,
+        name: sub.name,
+        planned: plannedBySub.get(subKey(category.id, sub.id)) ?? 0,
+        spent: spentBySub.get(subKey(category.id, sub.id)) ?? 0,
+      }));
+
+      buckets.push({
+        subcategoryId: null,
+        name: "Sin subcategoría",
+        planned: plannedBySub.get(subKey(category.id, null)) ?? 0,
+        spent: spentBySub.get(subKey(category.id, null)) ?? 0,
+      });
+
+      const bySubcategory = buckets
+        .filter((b) => b.planned > 0 || b.spent > 0)
+        .sort((a, b) => b.spent - a.spent || b.planned - a.planned);
+
+      return {
+        categoryId: category.id,
+        name: category.name,
+        icon: category.icon,
+        color: category.color,
+        planned: bySubcategory.reduce((sum, b) => sum + b.planned, 0),
+        spent: bySubcategory.reduce((sum, b) => sum + b.spent, 0),
+        bySubcategory,
+      };
+    })
     .filter((c) => c.planned > 0 || c.spent > 0);
 
   return {
@@ -207,7 +249,7 @@ export type ExpenseRow = {
 
 export async function getExpenses(
   period: string,
-  opts: { categoryId?: number } = {},
+  opts: { categoryId?: number; subcategoryId?: number | "none" } = {},
 ): Promise<ExpenseRow[]> {
   const rows = await db
     .select({
@@ -234,6 +276,11 @@ export async function getExpenses(
       and(
         eq(expenses.period, period),
         opts.categoryId ? eq(expenses.categoryId, opts.categoryId) : undefined,
+        opts.subcategoryId === "none"
+          ? isNull(expenses.subcategoryId)
+          : opts.subcategoryId
+            ? eq(expenses.subcategoryId, opts.subcategoryId)
+            : undefined,
       ),
     )
     .orderBy(desc(expenses.spentOn), desc(expenses.id));

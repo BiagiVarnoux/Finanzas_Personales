@@ -97,10 +97,10 @@ export default async function DashboardPage({
               {summary.byCategory.map((cat) => {
                 const over = cat.planned > 0 && cat.spent > cat.planned;
                 return (
-                  <li key={cat.categoryId}>
+                  <li key={cat.categoryId} className="px-4 py-3">
                     <Link
                       href={`/gastos?mes=${period}&categoria=${cat.categoryId}`}
-                      className="block px-4 py-3 active:bg-surface-2"
+                      className="block"
                     >
                       <div className="mb-2 flex items-center gap-2">
                         <span className="text-lg leading-none">{cat.icon}</span>
@@ -123,6 +123,40 @@ export default async function DashboardPage({
                         )}
                       </div>
                     </Link>
+
+                    {cat.bySubcategory.length > 0 && (
+                      <ul className="mt-2.5 space-y-0.5 border-l border-border pl-3">
+                        {cat.bySubcategory.map((sub) => {
+                          const subOver = sub.planned > 0 && sub.spent > sub.planned;
+                          return (
+                            <li key={sub.subcategoryId ?? "sin"}>
+                              <Link
+                                href={`/gastos?mes=${period}&categoria=${cat.categoryId}&subcategoria=${
+                                  sub.subcategoryId ?? "sin"
+                                }`}
+                                className="flex items-baseline gap-2 rounded-lg py-1 active:bg-surface-2"
+                              >
+                                <span className="min-w-0 flex-1 truncate text-xs text-muted">
+                                  {sub.name}
+                                </span>
+                                {sub.planned > 0 && (
+                                  <span className="tabular shrink-0 text-[11px] text-muted">
+                                    de {bs(sub.planned)}
+                                  </span>
+                                )}
+                                <span
+                                  className={`tabular shrink-0 text-xs font-medium ${
+                                    subOver ? "text-danger" : ""
+                                  }`}
+                                >
+                                  {bs(sub.spent)}
+                                </span>
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </li>
                 );
               })}
