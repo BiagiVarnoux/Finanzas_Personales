@@ -9,6 +9,15 @@ import type { PlanItemRow } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
+type SubGroup = { name: string; items: PlanItemRow[] };
+type CategoryGroup = {
+  name: string;
+  icon: string;
+  color: string;
+  /** Clave 0 = los items que no tienen subcategoría */
+  subgroups: Map<number, SubGroup>;
+};
+
 export default async function PlanPage({
   searchParams,
 }: {
@@ -26,16 +35,25 @@ export default async function PlanPage({
   const spentByKey = new Map(comparison.map((row) => [row.key, row]));
   const unplanned = comparison.filter((row) => row.plannedAmount === 0 && row.spentAmount > 0);
 
-  // Agrupado por categoría, respetando el orden que ya trae getPlanItems.
-  const byCategory = new Map<number, { name: string; icon: string; color: string; items: PlanItemRow[] }>();
+  // Agrupado por categoría y, dentro de cada una, por subcategoría.
+  // getPlanItems ya viene ordenado por categoría, así que el orden se respeta solo.
+  const byCategory = new Map<number, CategoryGroup>();
   for (const item of items) {
     const group = byCategory.get(item.categoryId) ?? {
       name: item.categoryName,
       icon: item.categoryIcon,
       color: item.categoryColor,
+      subgroups: new Map<number, SubGroup>(),
+    };
+
+    // 0 es la clave de "sin subcategoría", que va siempre al final.
+    const subId = item.subcategoryId ?? 0;
+    const subgroup = group.subgroups.get(subId) ?? {
+      name: item.subcategoryName ?? "Sin subcategoría",
       items: [],
     };
-    group.items.push(item);
+    subgroup.items.push(item);
+    group.subgroups.set(subId, subgroup);
     byCategory.set(item.categoryId, group);
   }
 
@@ -122,11 +140,18 @@ export default async function PlanPage({
           </Card>
         ) : (
           [...byCategory.entries()].map(([categoryId, group]) => {
-            const planned = group.items.reduce((sum, i) => sum + i.amount, 0);
-            const spent = group.items.reduce(
+            const all = [...group.subgroups.values()].flatMap((s) => s.items);
+            const planned = all.reduce((sum, i) => sum + i.amount, 0);
+            const spent = all.reduce(
               (sum, i) => sum + (spentByKey.get(keyOf(i))?.spentAmount ?? 0),
               0,
             );
+
+            // "Sin subcategoría" (clave 0) siempre al final.
+            const subgroups = [...group.subgroups.entries()].sort(([a], [b]) =>
+              a === 0 ? 1 : b === 0 ? -1 : 0,
+            );
+
             return (
               <div key={categoryId}>
                 <div className="mb-1.5 flex items-baseline justify-between px-1">
@@ -137,43 +162,60 @@ export default async function PlanPage({
                     {bs(spent)} / {bs(planned)}
                   </span>
                 </div>
-                <Card>
-                  <ul className="divide-y divide-border">
-                    {group.items.map((item) => {
-                      const actual = spentByKey.get(keyOf(item));
-                      const spentAmount = actual?.spentAmount ?? 0;
-                      const over = spentAmount > item.amount;
-                      return (
-                        <li key={item.id}>
-                          <Link
-                            href={`/plan/${item.id}?mes=${period}`}
-                            className="block px-4 py-3 active:bg-surface-2"
-                          >
-                            <div className="flex items-baseline justify-between gap-3">
-                              <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                                {item.label}
-                              </span>
-                              <span className="tabular text-sm font-semibold">
-                                {bs(item.amount)}
-                              </span>
-                            </div>
-                            <div className="mt-1 flex items-center gap-2 text-xs text-muted">
-                              <span className="tabular">
-                                {fmtQty(item.quantity)} {item.unit} × {bs(item.unitPrice)}
-                              </span>
-                              {spentAmount === 0 ? (
-                                <Chip>sin comprar</Chip>
-                              ) : over ? (
-                                <Chip tone="bad">gastado {bs(spentAmount)}</Chip>
-                              ) : (
-                                <Chip tone="good">gastado {bs(spentAmount)}</Chip>
-                              )}
-                            </div>
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
+
+                <Card className="overflow-hidden">
+                  {subgroups.map(([subId, subgroup]) => {
+                    const subPlanned = subgroup.items.reduce((sum, i) => sum + i.amount, 0);
+                    return (
+                      <div key={subId}>
+                        <div className="flex items-baseline justify-between gap-3 border-y border-border bg-surface-2 px-4 py-1.5 first:border-t-0">
+                          <h3 className="min-w-0 truncate text-[11px] font-semibold tracking-wide text-muted uppercase">
+                            {subgroup.name}
+                          </h3>
+                          <span className="tabular shrink-0 text-[11px] text-muted">
+                            {bs(subPlanned)}
+                          </span>
+                        </div>
+
+                        <ul className="divide-y divide-border">
+                          {subgroup.items.map((item) => {
+                            const actual = spentByKey.get(keyOf(item));
+                            const spentAmount = actual?.spentAmount ?? 0;
+                            const over = spentAmount > item.amount;
+                            return (
+                              <li key={item.id}>
+                                <Link
+                                  href={`/plan/${item.id}?mes=${period}`}
+                                  className="block px-4 py-3 active:bg-surface-2"
+                                >
+                                  <div className="flex items-baseline justify-between gap-3">
+                                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                                      {item.label}
+                                    </span>
+                                    <span className="tabular text-sm font-semibold">
+                                      {bs(item.amount)}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+                                    <span className="tabular">
+                                      {fmtQty(item.quantity)} {item.unit} × {bs(item.unitPrice)}
+                                    </span>
+                                    {spentAmount === 0 ? (
+                                      <Chip>sin comprar</Chip>
+                                    ) : over ? (
+                                      <Chip tone="bad">gastado {bs(spentAmount)}</Chip>
+                                    ) : (
+                                      <Chip tone="good">gastado {bs(spentAmount)}</Chip>
+                                    )}
+                                  </div>
+                                </Link>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })}
                 </Card>
               </div>
             );
