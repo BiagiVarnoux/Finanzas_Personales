@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { planItems, products } from "@/db/schema";
+import { categories, planItems, products } from "@/db/schema";
 import { money, parseDecimal, parseId, parseText, quantity } from "@/lib/parse";
 import { currentPeriod, isValidPeriod, shiftPeriod } from "@/lib/period";
 import type { FormState } from "./expenses";
@@ -18,8 +18,22 @@ export async function savePlanItem(_prev: FormState, formData: FormData): Promis
   const period = parseText(formData.get("period"));
   if (!isValidPeriod(period)) return { error: "Mes inválido." };
 
-  const categoryId = parseId(formData.get("categoryId"));
-  if (!categoryId) return { error: "Elegí una categoría." };
+  // Igual que en los gastos: se puede crear la categoría sin salir del formulario.
+  const newCategoryName = parseText(formData.get("newCategoryName"));
+  let categoryId = parseId(formData.get("categoryId"));
+  if (newCategoryName) {
+    const [row] = await db
+      .insert(categories)
+      .values({
+        name: newCategoryName,
+        icon: parseText(formData.get("newCategoryIcon")) || "📦",
+        sortOrder: 50,
+      })
+      .onConflictDoUpdate({ target: categories.name, set: { name: newCategoryName } })
+      .returning({ id: categories.id });
+    categoryId = row?.id ?? null;
+  }
+  if (!categoryId) return { error: "Elegí una categoría o creá una nueva." };
 
   const productId = parseId(formData.get("productId"));
   const label = parseText(formData.get("label"));

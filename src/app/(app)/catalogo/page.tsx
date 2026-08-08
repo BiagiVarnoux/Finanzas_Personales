@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { logout } from "@/app/login/actions";
 import { SearchIcon } from "@/components/icons";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { bs } from "@/lib/format";
@@ -120,14 +119,6 @@ export default async function CatalogPage({
           ))
         )}
 
-        <form action={logout} className="pt-4">
-          <button
-            type="submit"
-            className="w-full rounded-2xl border border-border py-3 text-sm font-medium text-muted active:bg-surface-2"
-          >
-            Cerrar sesión
-          </button>
-        </form>
       </main>
     </>
   );

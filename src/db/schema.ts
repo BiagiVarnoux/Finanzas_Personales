@@ -125,7 +125,43 @@ export const expenses = pgTable(
   ],
 );
 
+/**
+ * Los ingresos tienen su propia lista de categorías (Sueldo, Negocio, Ventas…),
+ * separada de las de gasto para que los desplegables no se mezclen.
+ */
+export const incomeCategories = pgTable("income_categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  icon: text("icon").notNull().default("💰"),
+  color: text("color").notNull().default("#10794f"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const incomes = pgTable(
+  "incomes",
+  {
+    id: serial("id").primaryKey(),
+    receivedOn: date("received_on").notNull(),
+    /** 'YYYY-MM' derivado de receivedOn */
+    period: varchar("period", { length: 7 }).notNull(),
+    description: text("description").notNull(),
+    categoryId: integer("category_id")
+      .notNull()
+      .references(() => incomeCategories.id, { onDelete: "restrict" }),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("incomes_period_idx").on(t.period),
+    index("incomes_received_on_idx").on(t.receivedOn),
+  ],
+);
+
 export type Category = typeof categories.$inferSelect;
+export type IncomeCategory = typeof incomeCategories.$inferSelect;
+export type Income = typeof incomes.$inferSelect;
 export type Subcategory = typeof subcategories.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type PlanItem = typeof planItems.$inferSelect;

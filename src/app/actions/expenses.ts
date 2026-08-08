@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { expenses, products } from "@/db/schema";
+import { categories, expenses, products } from "@/db/schema";
 import { money, parseDecimal, parseId, parseText, quantity } from "@/lib/parse";
 import { isValidPeriod, periodOf, todayISO } from "@/lib/period";
 
@@ -14,13 +14,34 @@ function refresh() {
   revalidatePath("/", "layout");
 }
 
+/**
+ * Devuelve el id de la categoría a usar. Si el formulario trae un nombre nuevo,
+ * la crea en el momento (o reusa la que ya exista con ese nombre).
+ */
+async function resolveCategory(formData: FormData): Promise<number | null> {
+  const newName = parseText(formData.get("newCategoryName"));
+  if (newName) {
+    const [row] = await db
+      .insert(categories)
+      .values({
+        name: newName,
+        icon: parseText(formData.get("newCategoryIcon")) || "📦",
+        sortOrder: 50,
+      })
+      .onConflictDoUpdate({ target: categories.name, set: { name: newName } })
+      .returning({ id: categories.id });
+    return row?.id ?? null;
+  }
+  return parseId(formData.get("categoryId"));
+}
+
 export async function saveExpense(_prev: FormState, formData: FormData): Promise<FormState> {
   const id = parseId(formData.get("id"));
   const spentOn = parseText(formData.get("spentOn")) || todayISO();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(spentOn)) return { error: "La fecha no es válida." };
 
-  const categoryId = parseId(formData.get("categoryId"));
-  if (!categoryId) return { error: "Elegí una categoría." };
+  const categoryId = await resolveCategory(formData);
+  if (!categoryId) return { error: "Elegí una categoría o creá una nueva." };
 
   const productId = parseId(formData.get("productId"));
   const description = parseText(formData.get("description"));

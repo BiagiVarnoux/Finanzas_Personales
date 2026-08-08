@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { saveExpense, type FormState } from "@/app/actions/expenses";
 import { bs, toNumber } from "@/lib/format";
 import type { CategoryWithSubs, ProductRow } from "@/lib/queries";
+import { CategoryPicker } from "./category-picker";
 import { SearchIcon } from "./icons";
 
 const UNITS = ["unidad", "kg", "litro", "gramo", "paquete", "docena", "arroba", "libra", "mes", "viaje"];
@@ -228,25 +229,14 @@ export function ExpenseForm({
         </Field>
       </div>
 
-      <Field label="Categoría">
-        <select
-          name="categoryId"
-          aria-label="Categoría"
-          value={categoryId ?? ""}
-          onChange={(e) => {
-            setCategoryId(e.target.value ? Number(e.target.value) : null);
-            setSubcategoryId(null);
-          }}
-          className="w-full appearance-none rounded-xl border border-border bg-surface px-3 py-3 outline-none focus:border-accent"
-        >
-          <option value="">Elegir…</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.icon} {c.name}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <CategoryPicker
+        categories={categories}
+        value={categoryId}
+        onChange={(id) => {
+          setCategoryId(id);
+          setSubcategoryId(null);
+        }}
+      />
 
       {subcategories.length > 0 && (
         <Field label="Subcategoría">

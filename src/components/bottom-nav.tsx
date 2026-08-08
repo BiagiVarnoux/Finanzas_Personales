@@ -2,13 +2,23 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HomeIcon, ListIcon, PlusIcon, TagIcon, TargetIcon } from "./icons";
+import { GearIcon, HomeIcon, ListIcon, PlusIcon, TargetIcon } from "./icons";
 
+// El catálogo y las categorías viven dentro de Ajustes: se tocan de vez en
+// cuando, no todos los días como los gastos.
 const TABS = [
   { href: "/", label: "Resumen", Icon: HomeIcon, exact: true },
   { href: "/gastos", label: "Gastos", Icon: ListIcon, exact: false },
   { href: "/plan", label: "Plan", Icon: TargetIcon, exact: false },
-  { href: "/catalogo", label: "Catálogo", Icon: TagIcon, exact: false },
+  {
+    href: "/ajustes",
+    label: "Ajustes",
+    Icon: GearIcon,
+    exact: false,
+    // El catálogo y los ingresos cuelgan de Ajustes, así que la pestaña
+    // se queda encendida mientras estás ahí adentro.
+    alsoMatches: ["/catalogo", "/ingresos"],
+  },
 ] as const;
 
 export function BottomNav() {
@@ -43,14 +53,18 @@ function Tab({
   Icon,
   exact,
   pathname,
+  alsoMatches = [],
 }: {
   href: string;
   label: string;
   Icon: (props: { className?: string }) => React.ReactElement;
   exact: boolean;
   pathname: string;
+  alsoMatches?: readonly string[];
 }) {
-  const active = exact ? pathname === href : pathname.startsWith(href);
+  const active = exact
+    ? pathname === href
+    : pathname.startsWith(href) || alsoMatches.some((p) => pathname.startsWith(p));
   return (
     <Link
       href={href}

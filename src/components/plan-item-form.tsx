@@ -5,6 +5,7 @@ import { savePlanItem } from "@/app/actions/plan";
 import type { FormState } from "@/app/actions/expenses";
 import { bs, toNumber } from "@/lib/format";
 import type { CategoryWithSubs, ProductRow } from "@/lib/queries";
+import { CategoryPicker } from "./category-picker";
 import { SearchIcon } from "./icons";
 
 export type PlanInitial = {
@@ -145,26 +146,14 @@ export function PlanItemForm({
         <span className="tabular text-lg font-semibold">{bs(total)}</span>
       </div>
 
-      <div>
-        <span className="mb-1.5 block text-xs font-medium text-muted">Categoría</span>
-        <select
-          name="categoryId"
-          aria-label="Categoría"
-          value={categoryId ?? ""}
-          onChange={(e) => {
-            setCategoryId(e.target.value ? Number(e.target.value) : null);
-            setSubcategoryId(null);
-          }}
-          className="w-full appearance-none rounded-xl border border-border bg-surface px-3 py-3 outline-none focus:border-accent"
-        >
-          <option value="">Elegir…</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.icon} {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <CategoryPicker
+        categories={categories}
+        value={categoryId}
+        onChange={(id) => {
+          setCategoryId(id);
+          setSubcategoryId(null);
+        }}
+      />
 
       {subcategories.length > 0 && (
         <div>

@@ -3,7 +3,7 @@ import { MonthSwitcher } from "@/components/month-switcher";
 import { Card, Chip, EmptyState, PageHeader, ProgressBar } from "@/components/ui";
 import { bs, pct } from "@/lib/format";
 import { currentPeriod, dayLabel, isValidPeriod, periodProgress } from "@/lib/period";
-import { getExpenses, getMonthSummary } from "@/lib/queries";
+import { getExpenses, getIncomeSummary, getMonthSummary } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +15,13 @@ export default async function DashboardPage({
   const { mes } = await searchParams;
   const period = isValidPeriod(mes) ? mes : currentPeriod();
 
-  const [summary, recent] = await Promise.all([getMonthSummary(period), getExpenses(period)]);
+  const [summary, recent, income] = await Promise.all([
+    getMonthSummary(period),
+    getExpenses(period),
+    getIncomeSummary(period),
+  ]);
 
+  const balance = income.total - summary.spent;
   const remaining = summary.planned - summary.spent;
   const { daysInMonth, daysElapsed } = periodProgress(period);
   const projection = daysElapsed > 0 ? (summary.spent / daysElapsed) * daysInMonth : 0;
@@ -30,8 +35,37 @@ export default async function DashboardPage({
 
       <main className="mx-auto max-w-lg space-y-4 px-4 py-4">
         <Card className="p-5">
-          <p className="text-sm text-muted">Gastado este mes</p>
-          <p className="tabular mt-1 text-4xl font-semibold tracking-tight">{bs(summary.spent)}</p>
+          <p className="text-sm text-muted">
+            {income.total > 0 ? "Te queda este mes" : "Gastado este mes"}
+          </p>
+          <p
+            className={`tabular mt-1 text-4xl font-semibold tracking-tight ${
+              income.total > 0 && balance < 0 ? "text-danger" : ""
+            }`}
+          >
+            {bs(income.total > 0 ? balance : summary.spent)}
+          </p>
+
+          {/* Ingresos y gastos del mes, uno al lado del otro. */}
+          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-3">
+            <Link href={`/ingresos?mes=${period}`} className="block active:opacity-70">
+              <p className="text-xs text-muted">Ingresos</p>
+              <p className="tabular text-lg font-semibold text-accent">
+                {income.total > 0 ? `+${bs(income.total)}` : bs(0)}
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted">
+                {income.total > 0 ? "ver detalle →" : "cargar ingreso →"}
+              </p>
+            </Link>
+            <Link
+              href={`/gastos?mes=${period}`}
+              className="block text-right active:opacity-70"
+            >
+              <p className="text-xs text-muted">Gastos</p>
+              <p className="tabular text-lg font-semibold">−{bs(summary.spent)}</p>
+              <p className="mt-0.5 text-[11px] text-muted">ver detalle →</p>
+            </Link>
+          </div>
 
           {summary.planned > 0 ? (
             <>

@@ -1,7 +1,15 @@
 import "server-only";
 import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { categories, expenses, planItems, products, subcategories } from "@/db/schema";
+import {
+  categories,
+  expenses,
+  incomeCategories,
+  incomes,
+  planItems,
+  products,
+  subcategories,
+} from "@/db/schema";
 import { toNumber } from "./format";
 import { periodRange } from "./period";
 
@@ -467,4 +475,96 @@ export async function getDailySpend(period: string): Promise<{ day: number; amou
     .orderBy(asc(expenses.spentOn));
 
   return rows.map((r) => ({ day: Number(r.spentOn.slice(8, 10)), amount: toNumber(r.total) }));
+}
+
+/* ── Ingresos ────────────────────────────────────────────────────────────── */
+
+export type IncomeCategoryRow = {
+  id: number;
+  name: string;
+  icon: string;
+  color: string;
+};
+
+export async function getIncomeCategories(): Promise<IncomeCategoryRow[]> {
+  return db
+    .select({
+      id: incomeCategories.id,
+      name: incomeCategories.name,
+      icon: incomeCategories.icon,
+      color: incomeCategories.color,
+    })
+    .from(incomeCategories)
+    .orderBy(asc(incomeCategories.sortOrder), asc(incomeCategories.name));
+}
+
+export type IncomeRow = {
+  id: number;
+  receivedOn: string;
+  description: string;
+  amount: number;
+  note: string | null;
+  categoryId: number;
+  categoryName: string;
+  categoryIcon: string;
+  categoryColor: string;
+};
+
+export async function getIncomes(period: string): Promise<IncomeRow[]> {
+  const rows = await db
+    .select({
+      id: incomes.id,
+      receivedOn: incomes.receivedOn,
+      description: incomes.description,
+      amount: incomes.amount,
+      note: incomes.note,
+      categoryId: incomes.categoryId,
+      categoryName: incomeCategories.name,
+      categoryIcon: incomeCategories.icon,
+      categoryColor: incomeCategories.color,
+    })
+    .from(incomes)
+    .innerJoin(incomeCategories, eq(incomeCategories.id, incomes.categoryId))
+    .where(eq(incomes.period, period))
+    .orderBy(desc(incomes.receivedOn), desc(incomes.id));
+
+  return rows.map((r) => ({ ...r, amount: toNumber(r.amount) }));
+}
+
+export async function getIncome(id: number) {
+  const [row] = await db.select().from(incomes).where(eq(incomes.id, id)).limit(1);
+  return row ?? null;
+}
+
+export type IncomeSummary = {
+  total: number;
+  byCategory: { categoryId: number; name: string; icon: string; color: string; total: number }[];
+};
+
+export async function getIncomeSummary(period: string): Promise<IncomeSummary> {
+  const rows = await db
+    .select({
+      categoryId: incomes.categoryId,
+      name: incomeCategories.name,
+      icon: incomeCategories.icon,
+      color: incomeCategories.color,
+      total: sql<string>`coalesce(sum(${incomes.amount}), 0)`,
+    })
+    .from(incomes)
+    .innerJoin(incomeCategories, eq(incomeCategories.id, incomes.categoryId))
+    .where(eq(incomes.period, period))
+    .groupBy(incomes.categoryId, incomeCategories.name, incomeCategories.icon, incomeCategories.color)
+    .orderBy(desc(sql`sum(${incomes.amount})`));
+
+  const byCategory = rows.map((r) => ({ ...r, total: toNumber(r.total) }));
+  return { total: byCategory.reduce((sum, c) => sum + c.total, 0), byCategory };
+}
+
+/** Cuántos ingresos tiene cada categoría, para saber si se puede borrar. */
+export async function getIncomeCategoryUsage(): Promise<Map<number, number>> {
+  const rows = await db
+    .select({ categoryId: incomes.categoryId, uses: sql<number>`count(*)::int` })
+    .from(incomes)
+    .groupBy(incomes.categoryId);
+  return new Map(rows.map((r) => [r.categoryId, r.uses]));
 }
