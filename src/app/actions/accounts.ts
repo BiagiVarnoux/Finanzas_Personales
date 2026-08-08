@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { accounts } from "@/db/schema";
 import { requireUserId } from "@/lib/current-user";
+import { isDuplicate } from "@/lib/db-errors";
 import { money, parseDecimal, parseId, parseText } from "@/lib/parse";
 import type { FormState } from "./expenses";
 
@@ -68,8 +69,10 @@ export async function saveAccount(_prev: FormState, formData: FormData): Promise
     } else {
       await db.insert(accounts).values({ ...values, userId, sortOrder: 50 });
     }
-  } catch {
-    return { error: `Ya existe una cuenta llamada "${name}".` };
+  } catch (err) {
+    return isDuplicate(err, "saveAccount")
+      ? { error: `Ya existe una cuenta llamada "${name}".` }
+      : { error: "No se pudo guardar la cuenta. Probá de nuevo." };
   }
 
   refresh();

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { incomeCategories, incomes } from "@/db/schema";
 import { requireUserId } from "@/lib/current-user";
+import { isDuplicate } from "@/lib/db-errors";
 import { money, parseDecimal, parseId, parseText } from "@/lib/parse";
 import { isValidPeriod, periodOf, todayISO } from "@/lib/period";
 import type { FormState } from "./expenses";
@@ -123,8 +124,10 @@ export async function saveIncomeCategory(
     } else {
       await db.insert(incomeCategories).values({ ...values, userId, sortOrder: 50 });
     }
-  } catch {
-    return { error: `Ya existe una categoría de ingreso llamada "${name}".` };
+  } catch (err) {
+    return isDuplicate(err, "saveIncomeCategory")
+      ? { error: `Ya existe una categoría de ingreso llamada "${name}".` }
+      : { error: "No se pudo guardar la categoría. Probá de nuevo." };
   }
 
   refresh();

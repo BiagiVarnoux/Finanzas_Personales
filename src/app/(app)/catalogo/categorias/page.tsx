@@ -1,68 +1,72 @@
 import Link from "next/link";
-import { deleteCategory, deleteSubcategory } from "@/app/actions/catalog";
-import { NewCategoryForm, NewSubcategoryForm } from "@/components/category-forms";
+import { NewCategoryForm } from "@/components/category-forms";
+import { ChevronRight } from "@/components/icons";
 import { Card, PageHeader } from "@/components/ui";
-import { getCategories } from "@/lib/queries";
+import { getCategories, getCategoryUsage } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
-export default async function CategoriesPage() {
-  const categories = await getCategories();
+export default async function CategoriesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ borrada?: string }>;
+}) {
+  const { borrada } = await searchParams;
+  const [categories, usage] = await Promise.all([getCategories(), getCategoryUsage()]);
 
   return (
     <>
       <PageHeader
         title="Categorías"
         action={
-          <Link href="/catalogo" className="text-sm font-medium text-muted">
+          <Link href="/ajustes" className="text-sm font-medium text-muted">
             Volver
           </Link>
         }
       />
 
       <main className="mx-auto max-w-lg space-y-4 px-4 py-4">
-        {categories.map((category) => (
-          <Card key={category.id} className="p-4">
-            <div className="flex items-center gap-2">
-              <span
-                className="h-3 w-3 shrink-0 rounded-full"
-                style={{ backgroundColor: category.color }}
-              />
-              <span className="text-lg leading-none">{category.icon}</span>
-              <h2 className="min-w-0 flex-1 truncate font-medium">{category.name}</h2>
-              <form action={deleteCategory}>
-                <input type="hidden" name="id" value={category.id} />
-                <button
-                  type="submit"
-                  className="rounded-lg px-2 py-1 text-xs text-muted active:bg-surface-2"
-                >
-                  Eliminar
-                </button>
-              </form>
-            </div>
-
-            {category.subcategories.length > 0 && (
-              <ul className="mt-3 flex flex-wrap gap-1.5">
-                {category.subcategories.map((sub) => (
-                  <li key={sub.id}>
-                    <form action={deleteSubcategory}>
-                      <input type="hidden" name="id" value={sub.id} />
-                      <button
-                        type="submit"
-                        title="Quitar subcategoría"
-                        className="rounded-full bg-surface-2 px-2.5 py-1 text-xs text-muted active:opacity-70"
-                      >
-                        {sub.name} <span className="ml-0.5 opacity-60">×</span>
-                      </button>
-                    </form>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <NewSubcategoryForm categoryId={category.id} />
+        {borrada === "1" && (
+          <Card className="px-4 py-3">
+            <p className="text-sm text-accent">Categoría eliminada.</p>
           </Card>
-        ))}
+        )}
+
+        <Card>
+          <ul className="divide-y divide-border">
+            {categories.map((category) => {
+              const used = usage.get(category.id)?.total ?? 0;
+              return (
+                <li key={category.id}>
+                  <Link
+                    href={`/catalogo/categorias/${category.id}`}
+                    className="flex items-center gap-3 px-4 py-3 active:bg-surface-2"
+                  >
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-full"
+                      style={{ backgroundColor: category.color }}
+                    />
+                    <span className="text-lg leading-none">{category.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{category.name}</p>
+                      <p className="truncate text-xs text-muted">
+                        {category.subcategories.length === 0
+                          ? "sin subcategorías"
+                          : `${category.subcategories.length} ${
+                              category.subcategories.length === 1
+                                ? "subcategoría"
+                                : "subcategorías"
+                            }`}
+                        {used > 0 && ` · ${used} en uso`}
+                      </p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
 
         <Card className="p-4">
           <h2 className="mb-3 text-sm font-semibold">Nueva categoría</h2>
@@ -70,8 +74,8 @@ export default async function CategoriesPage() {
         </Card>
 
         <p className="px-1 text-xs text-muted">
-          Una categoría con gastos o productos asociados no se puede eliminar. Movelos primero a
-          otra categoría.
+          Tocá una categoría para cambiarle el nombre, el emoji o el color, y para administrar sus
+          subcategorías.
         </p>
       </main>
     </>

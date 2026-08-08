@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { categories, products, subcategories } from "@/db/schema";
 import { requireUserId } from "@/lib/current-user";
+import { isDuplicate } from "@/lib/db-errors";
 import { ownedCategoryId, ownedSubcategoryId } from "@/lib/owned";
 import { money, parseDecimal, parseId, parseText } from "@/lib/parse";
 import type { FormState } from "./expenses";
@@ -44,8 +45,10 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
     } else {
       await db.insert(products).values({ ...values, userId });
     }
-  } catch {
-    return { error: `Ya existe "${name}" con la unidad "${values.unit}".` };
+  } catch (err) {
+    return isDuplicate(err, "saveProduct")
+      ? { error: `Ya existe "${name}" con la unidad "${values.unit}".` }
+      : { error: "No se pudo guardar el producto. Probá de nuevo." };
   }
 
   refresh();
@@ -100,25 +103,56 @@ export async function saveCategory(_prev: FormState, formData: FormData): Promis
     } else {
       await db.insert(categories).values({ ...values, userId, sortOrder: 99 });
     }
-  } catch {
-    return { error: `Ya existe una categoría llamada "${name}".` };
+  } catch (err) {
+    return isDuplicate(err, "saveCategory")
+      ? { error: `Ya existe una categoría llamada "${name}".` }
+      : { error: "No se pudo guardar la categoría. Probá de nuevo." };
   }
 
   refresh();
-  redirect("/catalogo/categorias");
+  redirect(id ? `/catalogo/categorias/${id}` : "/catalogo/categorias");
 }
 
+/**
+ * La foreign key es restrict: si quedan productos, gastos o items de plan
+ * apuntando a la categoría, Postgres rechaza el borrado. Antes eso se tragaba
+ * en silencio y la pantalla volvía igual, sin explicar nada; ahora el motivo
+ * viaja en la URL y la pantalla lo muestra.
+ */
 export async function deleteCategory(formData: FormData) {
   const userId = await requireUserId();
   const id = parseId(formData.get("id"));
   if (!id) redirect("/catalogo/categorias");
+
   try {
     await db.delete(categories).where(and(eq(categories.id, id), eq(categories.userId, userId)));
   } catch {
-    // Tiene gastos o productos colgando: la dejamos como está.
+    redirect(`/catalogo/categorias/${id}?error=en-uso`);
   }
+
   refresh();
-  redirect("/catalogo/categorias");
+  redirect("/catalogo/categorias?borrada=1");
+}
+
+export async function renameSubcategory(_prev: FormState, formData: FormData): Promise<FormState> {
+  const userId = await requireUserId();
+  const id = parseId(formData.get("id"));
+  const name = parseText(formData.get("name"));
+  if (!id || !name) return { error: "Falta el nombre." };
+
+  try {
+    await db
+      .update(subcategories)
+      .set({ name })
+      .where(and(eq(subcategories.id, id), eq(subcategories.userId, userId)));
+  } catch (err) {
+    return isDuplicate(err, "renameSubcategory")
+      ? { error: `Ya existe una subcategoría llamada "${name}" en esta categoría.` }
+      : { error: "No se pudo renombrar. Probá de nuevo." };
+  }
+
+  refresh();
+  redirect(`/catalogo/categorias/${parseId(formData.get("categoryId")) ?? ""}`);
 }
 
 export async function saveSubcategory(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -137,22 +171,27 @@ export async function saveSubcategory(_prev: FormState, formData: FormData): Pro
 
   try {
     await db.insert(subcategories).values({ userId, categoryId, name }).onConflictDoNothing();
-  } catch {
-    return { error: "No se pudo guardar la subcategoría." };
+  } catch (err) {
+    return isDuplicate(err, "saveSubcategory")
+      ? { error: `Ya existe una subcategoría llamada "${name}" acá.` }
+      : { error: "No se pudo guardar la subcategoría. Probá de nuevo." };
   }
 
   refresh();
-  redirect("/catalogo/categorias");
+  redirect(`/catalogo/categorias/${categoryId}`);
 }
 
 export async function deleteSubcategory(formData: FormData) {
   const userId = await requireUserId();
   const id = parseId(formData.get("id"));
   if (id) {
+    // La foreign key es "set null": los movimientos que la usaban no se borran,
+    // quedan sin subcategoría.
     await db
       .delete(subcategories)
       .where(and(eq(subcategories.id, id), eq(subcategories.userId, userId)));
     refresh();
   }
-  redirect("/catalogo/categorias");
+  const categoryId = parseId(formData.get("categoryId"));
+  redirect(categoryId ? `/catalogo/categorias/${categoryId}` : "/catalogo/categorias");
 }

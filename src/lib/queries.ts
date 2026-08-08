@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   accounts,
@@ -742,6 +742,98 @@ export async function getAccount(id: number) {
     .select()
     .from(accounts)
     .where(and(eq(accounts.id, id), eq(accounts.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/* ── Uso de categorías y subcategorías ───────────────────────────────────── */
+
+export type CategoryUsage = {
+  products: number;
+  expenses: number;
+  planItems: number;
+  total: number;
+};
+
+/**
+ * Cuántas cosas dependen de cada categoría. Sirve para no ofrecer "Eliminar"
+ * cuando la base lo va a rechazar: la foreign key es restrict a propósito, para
+ * que borrar una categoría no se lleve puestos los gastos viejos.
+ */
+export async function getCategoryUsage(): Promise<Map<number, CategoryUsage>> {
+  const userId = await requireUserId();
+
+  const [prod, exp, plan] = await Promise.all([
+    db
+      .select({ id: products.categoryId, n: sql<number>`count(*)::int` })
+      .from(products)
+      .where(eq(products.userId, userId))
+      .groupBy(products.categoryId),
+    db
+      .select({ id: expenses.categoryId, n: sql<number>`count(*)::int` })
+      .from(expenses)
+      .where(eq(expenses.userId, userId))
+      .groupBy(expenses.categoryId),
+    db
+      .select({ id: planItems.categoryId, n: sql<number>`count(*)::int` })
+      .from(planItems)
+      .where(eq(planItems.userId, userId))
+      .groupBy(planItems.categoryId),
+  ]);
+
+  const usage = new Map<number, CategoryUsage>();
+  const bump = (id: number, key: "products" | "expenses" | "planItems", n: number) => {
+    const row = usage.get(id) ?? { products: 0, expenses: 0, planItems: 0, total: 0 };
+    row[key] += n;
+    row.total += n;
+    usage.set(id, row);
+  };
+
+  for (const r of prod) bump(r.id, "products", r.n);
+  for (const r of exp) bump(r.id, "expenses", r.n);
+  for (const r of plan) bump(r.id, "planItems", r.n);
+  return usage;
+}
+
+/**
+ * Igual que arriba pero por subcategoría. Acá la foreign key es "set null", así
+ * que borrarla no falla: deja los movimientos sin subcategoría. Por eso se avisa
+ * cuántos van a quedar sueltos antes de borrar.
+ */
+export async function getSubcategoryUsage(): Promise<Map<number, number>> {
+  const userId = await requireUserId();
+
+  const [prod, exp, plan] = await Promise.all([
+    db
+      .select({ id: products.subcategoryId, n: sql<number>`count(*)::int` })
+      .from(products)
+      .where(and(eq(products.userId, userId), isNotNull(products.subcategoryId)))
+      .groupBy(products.subcategoryId),
+    db
+      .select({ id: expenses.subcategoryId, n: sql<number>`count(*)::int` })
+      .from(expenses)
+      .where(and(eq(expenses.userId, userId), isNotNull(expenses.subcategoryId)))
+      .groupBy(expenses.subcategoryId),
+    db
+      .select({ id: planItems.subcategoryId, n: sql<number>`count(*)::int` })
+      .from(planItems)
+      .where(and(eq(planItems.userId, userId), isNotNull(planItems.subcategoryId)))
+      .groupBy(planItems.subcategoryId),
+  ]);
+
+  const usage = new Map<number, number>();
+  for (const rows of [prod, exp, plan]) {
+    for (const r of rows) if (r.id !== null) usage.set(r.id, (usage.get(r.id) ?? 0) + r.n);
+  }
+  return usage;
+}
+
+export async function getCategory(id: number) {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select()
+    .from(categories)
+    .where(and(eq(categories.id, id), eq(categories.userId, userId)))
     .limit(1);
   return row ?? null;
 }
