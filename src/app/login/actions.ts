@@ -1,35 +1,89 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { SESSION_COOKIE, checkPassword, createSessionToken, sessionCookieOptions } from "@/lib/auth";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import {
+  checkPasswordStrength,
+  hashPassword,
+  isValidEmail,
+  normalizeEmail,
+  verifyPassword,
+} from "@/lib/password";
+import { SESSION_COOKIE, createSessionToken, safeEqual, sessionCookieOptions } from "@/lib/session";
 
-export type LoginState = { error?: string };
+export type AuthState = { error?: string };
 
-export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
+/**
+ * Hash descartable con el que se compara cuando el correo no existe. Sirve para
+ * que la respuesta tarde lo mismo exista o no la cuenta, y no se pueda averiguar
+ * quién está registrado midiendo el tiempo.
+ */
+const DUMMY_HASH =
+  "scrypt$00000000000000000000000000000000$" + "0".repeat(128);
+
+async function startSession(userId: number) {
+  const store = await cookies();
+  store.set(SESSION_COOKIE, await createSessionToken(userId), sessionCookieOptions);
+}
+
+export async function login(_prev: AuthState, formData: FormData): Promise<AuthState> {
+  const email = normalizeEmail(String(formData.get("email") ?? ""));
   const password = String(formData.get("password") ?? "");
-  if (!password) return { error: "Escribí tu contraseña." };
+  if (!email || !password) return { error: "Escribí tu correo y tu contraseña." };
 
-  // Un respiro artificial para que probar contraseñas al tanteo sea lento.
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  const [user] = await db
+    .select({ id: users.id, passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
 
-  // checkPassword y createSessionToken tiran si faltan las variables de entorno.
-  // Sin esto el usuario solo vería un 500 sin explicación.
-  let token: string;
-  try {
-    if (!checkPassword(password)) return { error: "Contraseña incorrecta." };
-    token = await createSessionToken();
-  } catch (err) {
-    console.error("Login mal configurado:", err);
-    return {
-      error:
-        "El servidor no tiene configuradas APP_PASSWORD y AUTH_SECRET. Cargalas en Vercel y volvé a desplegar.",
-    };
+  const ok = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
+
+  // El mismo mensaje en los dos casos: no delatamos qué correos existen.
+  if (!user || !ok) return { error: "Correo o contraseña incorrectos." };
+
+  await startSession(user.id);
+  redirect("/");
+}
+
+export async function register(_prev: AuthState, formData: FormData): Promise<AuthState> {
+  const expectedCode = process.env.SIGNUP_CODE?.trim();
+  if (!expectedCode) {
+    return { error: "El registro está cerrado: falta configurar SIGNUP_CODE en el servidor." };
   }
 
-  const store = await cookies();
-  store.set(SESSION_COOKIE, token, sessionCookieOptions);
-  // redirect() va fuera del try: lanza una excepción propia que no hay que atrapar.
+  const code = String(formData.get("code") ?? "").trim();
+  if (!safeEqual(code, expectedCode)) return { error: "El código de invitación no es válido." };
+
+  const email = normalizeEmail(String(formData.get("email") ?? ""));
+  if (!isValidEmail(email)) return { error: "Ese correo no parece válido." };
+
+  const password = String(formData.get("password") ?? "");
+  const weak = checkPasswordStrength(password);
+  if (weak) return { error: weak };
+
+  if (password !== String(formData.get("passwordConfirm") ?? "")) {
+    return { error: "Las dos contraseñas no coinciden." };
+  }
+
+  const name = String(formData.get("name") ?? "").trim() || null;
+
+  let userId: number;
+  try {
+    const [created] = await db
+      .insert(users)
+      .values({ email, passwordHash: await hashPassword(password), name })
+      .returning({ id: users.id });
+    userId = created.id;
+  } catch {
+    // Choca con users_email_unique.
+    return { error: "Ya existe una cuenta con ese correo." };
+  }
+
+  await startSession(userId);
   redirect("/");
 }
 

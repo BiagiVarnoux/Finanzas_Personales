@@ -3,13 +3,15 @@ import { logout } from "@/app/login/actions";
 import { ChevronRight } from "@/components/icons";
 import { Card, PageHeader } from "@/components/ui";
 import { bsShort } from "@/lib/format";
+import { getCurrentUser } from "@/lib/current-user";
 import { currentPeriod } from "@/lib/period";
 import { getAccountsOverview, getCategories, getIncomeCategories, getProducts } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [categories, incomeCategories, products, wallet] = await Promise.all([
+  const [user, categories, incomeCategories, products, wallet] = await Promise.all([
+    getCurrentUser(),
     getCategories(),
     getIncomeCategories(),
     getProducts(),
@@ -86,10 +88,17 @@ export default async function SettingsPage() {
         <section>
           <h2 className="mb-1.5 px-1 text-xs font-medium text-muted">Sesión</h2>
           <Card className="p-4">
-            <p className="text-sm text-muted">
-              La app usa una sola contraseña, guardada en el servidor. Para cambiarla, actualizá la
-              variable <code className="text-ink">APP_PASSWORD</code> en Vercel y volvé a
-              desplegar.
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-base font-semibold text-accent uppercase">
+                {(user.name ?? user.email).slice(0, 1)}
+              </span>
+              <div className="min-w-0">
+                {user.name && <p className="truncate text-sm font-medium">{user.name}</p>}
+                <p className="truncate text-xs text-muted">{user.email}</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              Tus datos son solo tuyos: nadie más que entre a la app puede verlos.
             </p>
             <form action={logout} className="mt-4">
               <button

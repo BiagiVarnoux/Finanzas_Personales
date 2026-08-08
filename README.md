@@ -1,7 +1,8 @@
 # Finanzas Personales
 
-App para registrar gastos del mes y compararlos contra un plan mensual armado con
-productos reales (1 litro de aceite = Bs 19,50). Pensada para usarse desde el celular.
+App multiusuario para registrar gastos e ingresos del mes y compararlos contra un
+plan mensual armado con productos reales (1 litro de aceite = Bs 19,50). Pensada
+para usarse desde el celular. Cada persona tiene su cuenta y sus propios datos.
 
 - **Next.js 16** (App Router, Server Actions) + TypeScript + Tailwind 4
 - **Neon** (Postgres) con **Drizzle ORM**
@@ -41,25 +42,22 @@ cp .env.example .env.local
 ```
 
 - `DATABASE_URL` — la connection string de Neon.
-- `APP_PASSWORD` — la contraseña con la que vas a entrar a la app.
+- `SIGNUP_CODE` — el código que hay que escribir para crearse una cuenta. Sin
+  esto el registro queda cerrado.
 - `AUTH_SECRET` — generalo con:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-### 3. Crear las tablas y cargar los datos iniciales
+### 3. Crear las tablas
 
 ```bash
 npm run db:push
 ```
 
-```bash
-npm run db:seed
-```
-
-El seed carga 6 categorías con sus subcategorías y unos 20 productos de ejemplo con
-precios de referencia. Todo eso lo podés editar después desde la pantalla **Catálogo**.
+Cada cuenta nueva arranca vacía: las categorías, las cuentas y los productos los
+crea cada quien sobre la marcha, desde los mismos formularios de carga.
 
 ### 4. Correr en local
 
@@ -67,13 +65,14 @@ precios de referencia. Todo eso lo podés editar después desde la pantalla **Ca
 npm run dev
 ```
 
-Abrí <http://localhost:3000> y entrá con la contraseña que pusiste en `APP_PASSWORD`.
+Abrí <http://localhost:3000>, andá a **Registrate** y creá tu cuenta con el
+código que pusiste en `SIGNUP_CODE`.
 
 ## Deploy en Vercel
 
 1. Subí el repo a GitHub.
 2. En [vercel.com](https://vercel.com) → **Add New Project** → importá el repo.
-3. En **Environment Variables** cargá las tres: `DATABASE_URL`, `APP_PASSWORD`,
+3. En **Environment Variables** cargá las tres: `DATABASE_URL`, `SIGNUP_CODE`,
    `AUTH_SECRET`. Usá los mismos valores del `.env.local`.
 4. **Deploy**. Vercel detecta Next.js solo, no hay que configurar nada más.
 
@@ -93,7 +92,6 @@ Queda como una app, sin barra del navegador.
 | `npm run build`       | Build de producción                                        |
 | `npm run db:push`     | Sincroniza el esquema con la base (sin archivos de migración) |
 | `npm run db:generate` | Genera el SQL de migración en `drizzle/`                   |
-| `npm run db:seed`     | Carga categorías, subcategorías y productos de ejemplo     |
 | `npm run db:studio`   | Explorador visual de la base de datos                      |
 
 ## Estructura
@@ -107,17 +105,34 @@ src/
 │   │   ├── plan/             Plan mensual y comparación
 │   │   └── catalogo/         Productos, categorías y subcategorías
 │   ├── actions/            Server Actions (escrituras)
-│   └── login/              Pantalla de acceso
+│   ├── login/              Ingreso a la app
+│   └── registro/           Alta de cuenta con código de invitación
 ├── components/             UI compartida
-├── db/                     Esquema Drizzle y seed
-├── lib/                    Consultas, formatos, fechas, sesión
+├── db/                     Esquema Drizzle
+├── lib/                    Consultas, sesión, contraseñas, dueño de cada fila
 └── proxy.ts                Portero: sin sesión, todo va a /login
 ```
 
+## Usuarios y aislamiento de datos
+
+Cada persona se registra con correo y contraseña, más el código de invitación de
+`SIGNUP_CODE`. Las contraseñas se guardan hasheadas con scrypt y salt por usuario.
+
+La sesión es una cookie firmada con HMAC (`AUTH_SECRET`) que lleva adentro el id
+del usuario y el vencimiento; vale 30 días y no hay tabla de sesiones.
+
+El aislamiento no depende del portero de rutas, sino de los datos:
+
+- Todas las tablas tienen `user_id`.
+- Toda consulta sale de `requireUserId()` y filtra por ese id — está en
+  `src/lib/queries.ts`, una sola función por consulta.
+- Toda escritura lleva el `user_id` de la sesión, y todo `update`/`delete` por id
+  incluye `user_id` en el `where`: un id ajeno simplemente no encuentra fila.
+- Los ids que llegan de un formulario (categoría, subcategoría, producto, cuenta)
+  se verifican contra el dueño antes de guardarse, en `src/lib/owned.ts`.
+
 ## Notas
 
-- La sesión es una cookie firmada con HMAC (`AUTH_SECRET`), válida 60 días. No hay
-  tabla de usuarios: es una app de una sola persona.
 - Los meses se calculan en hora de Bolivia (`America/La_Paz`), así un gasto cargado a
   las 11 de la noche del 31 no se va al mes siguiente.
 - Los productos no se borran, se archivan: los gastos viejos los siguen referenciando.

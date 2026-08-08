@@ -11,6 +11,7 @@ import {
   products,
   subcategories,
 } from "@/db/schema";
+import { requireUserId } from "./current-user";
 import { toNumber } from "./format";
 import { periodRange } from "./period";
 
@@ -24,6 +25,7 @@ export type CategoryWithSubs = {
 };
 
 export async function getCategories(): Promise<CategoryWithSubs[]> {
+  const userId = await requireUserId();
   const rows = await db
     .select({
       id: categories.id,
@@ -37,6 +39,7 @@ export async function getCategories(): Promise<CategoryWithSubs[]> {
     })
     .from(categories)
     .leftJoin(subcategories, eq(subcategories.categoryId, categories.id))
+    .where(eq(categories.userId, userId))
     .orderBy(asc(categories.sortOrder), asc(categories.name), asc(subcategories.sortOrder), asc(subcategories.name));
 
   const byId = new Map<number, CategoryWithSubs>();
@@ -72,6 +75,7 @@ export type ProductRow = {
 };
 
 export async function getProducts(search?: string): Promise<ProductRow[]> {
+  const userId = await requireUserId();
   const term = search?.trim();
   const rows = await db
     .select({
@@ -89,19 +93,30 @@ export async function getProducts(search?: string): Promise<ProductRow[]> {
     .from(products)
     .innerJoin(categories, eq(categories.id, products.categoryId))
     .leftJoin(subcategories, eq(subcategories.id, products.subcategoryId))
-    .where(term ? or(ilike(products.name, `%${term}%`), ilike(categories.name, `%${term}%`)) : undefined)
+    .where(
+      and(
+        eq(products.userId, userId),
+        term ? or(ilike(products.name, `%${term}%`), ilike(categories.name, `%${term}%`)) : undefined,
+      ),
+    )
     .orderBy(asc(categories.sortOrder), asc(products.name));
 
   return rows.map((r) => ({ ...r, lastPrice: toNumber(r.lastPrice) }));
 }
 
 export async function getProduct(id: number) {
-  const [row] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+  const userId = await requireUserId();
+  const [row] = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.id, id), eq(products.userId, userId)))
+    .limit(1);
   return row ?? null;
 }
 
 /** Los productos que más usás, para los accesos rápidos del formulario de gasto. */
 export async function getFrequentProducts(limit = 8): Promise<ProductRow[]> {
+  const userId = await requireUserId();
   const usage = db
     .select({
       productId: expenses.productId,
@@ -109,7 +124,7 @@ export async function getFrequentProducts(limit = 8): Promise<ProductRow[]> {
       lastUsed: sql<string>`max(${expenses.spentOn})`.as("last_used"),
     })
     .from(expenses)
-    .where(sql`${expenses.productId} is not null`)
+    .where(and(eq(expenses.userId, userId), sql`${expenses.productId} is not null`))
     .groupBy(expenses.productId)
     .as("usage");
 
@@ -130,7 +145,7 @@ export async function getFrequentProducts(limit = 8): Promise<ProductRow[]> {
     .innerJoin(products, eq(products.id, usage.productId))
     .innerJoin(categories, eq(categories.id, products.categoryId))
     .leftJoin(subcategories, eq(subcategories.id, products.subcategoryId))
-    .where(eq(products.isActive, true))
+    .where(and(eq(products.userId, userId), eq(products.isActive, true)))
     .orderBy(desc(usage.uses), desc(usage.lastUsed))
     .limit(limit);
 
@@ -168,6 +183,7 @@ function subKey(categoryId: number, subcategoryId: number | null): string {
 }
 
 export async function getMonthSummary(period: string): Promise<MonthSummary> {
+  const userId = await requireUserId();
   const [cats, spentRows, plannedRows] = await Promise.all([
     getCategories(),
     db
@@ -177,7 +193,7 @@ export async function getMonthSummary(period: string): Promise<MonthSummary> {
         total: sql<string>`coalesce(sum(${expenses.amount}), 0)`,
       })
       .from(expenses)
-      .where(eq(expenses.period, period))
+      .where(and(eq(expenses.userId, userId), eq(expenses.period, period)))
       .groupBy(expenses.categoryId, expenses.subcategoryId),
     db
       .select({
@@ -186,7 +202,7 @@ export async function getMonthSummary(period: string): Promise<MonthSummary> {
         total: sql<string>`coalesce(sum(${planItems.amount}), 0)`,
       })
       .from(planItems)
-      .where(eq(planItems.period, period))
+      .where(and(eq(planItems.userId, userId), eq(planItems.period, period)))
       .groupBy(planItems.categoryId, planItems.subcategoryId),
   ]);
 
@@ -263,6 +279,7 @@ export async function getExpenses(
   period: string,
   opts: { categoryId?: number; subcategoryId?: number | "none" } = {},
 ): Promise<ExpenseRow[]> {
+  const userId = await requireUserId();
   const rows = await db
     .select({
       id: expenses.id,
@@ -290,6 +307,7 @@ export async function getExpenses(
     .leftJoin(accounts, eq(accounts.id, expenses.accountId))
     .where(
       and(
+        eq(expenses.userId, userId),
         eq(expenses.period, period),
         opts.categoryId ? eq(expenses.categoryId, opts.categoryId) : undefined,
         opts.subcategoryId === "none"
@@ -310,7 +328,12 @@ export async function getExpenses(
 }
 
 export async function getExpense(id: number) {
-  const [row] = await db.select().from(expenses).where(eq(expenses.id, id)).limit(1);
+  const userId = await requireUserId();
+  const [row] = await db
+    .select()
+    .from(expenses)
+    .where(and(eq(expenses.id, id), eq(expenses.userId, userId)))
+    .limit(1);
   return row ?? null;
 }
 
@@ -332,6 +355,7 @@ export type PlanItemRow = {
 };
 
 export async function getPlanItems(period: string): Promise<PlanItemRow[]> {
+  const userId = await requireUserId();
   const rows = await db
     .select({
       id: planItems.id,
@@ -355,7 +379,7 @@ export async function getPlanItems(period: string): Promise<PlanItemRow[]> {
     .innerJoin(categories, eq(categories.id, planItems.categoryId))
     .leftJoin(products, eq(products.id, planItems.productId))
     .leftJoin(subcategories, eq(subcategories.id, planItems.subcategoryId))
-    .where(eq(planItems.period, period))
+    .where(and(eq(planItems.userId, userId), eq(planItems.period, period)))
     .orderBy(asc(categories.sortOrder), asc(planItems.id));
 
   return rows.map((r) => ({
@@ -377,6 +401,7 @@ export async function getPlanItems(period: string): Promise<PlanItemRow[]> {
 }
 
 export async function getPlanItem(id: number) {
+  const userId = await requireUserId();
   const [row] = await db
     .select({
       item: planItems,
@@ -384,7 +409,7 @@ export async function getPlanItem(id: number) {
     })
     .from(planItems)
     .leftJoin(products, eq(products.id, planItems.productId))
-    .where(eq(planItems.id, id))
+    .where(and(eq(planItems.id, id), eq(planItems.userId, userId)))
     .limit(1);
   return row ?? null;
 }
@@ -406,10 +431,9 @@ export type ComparisonRow = {
  * Lo que se compró sin estar planificado aparece igual, con plan en 0.
  */
 export async function getComparison(period: string): Promise<ComparisonRow[]> {
-  const [plan, spent] = await Promise.all([
-    getPlanItems(period),
-    getExpenses(period),
-  ]);
+  // No consulta la base por su cuenta: las dos funciones que usa ya filtran por
+  // el usuario de la sesión, así que el aislamiento viene heredado.
+  const [plan, spent] = await Promise.all([getPlanItems(period), getExpenses(period)]);
 
   const rows = new Map<string, ComparisonRow>();
   const keyFor = (productId: number | null, label: string) =>
@@ -460,10 +484,11 @@ export async function getComparison(period: string): Promise<ComparisonRow[]> {
 
 /** Meses que tienen algún movimiento, del más reciente al más viejo. */
 export async function getActivePeriods(): Promise<string[]> {
+  const userId = await requireUserId();
   const rows = await db.execute<{ period: string }>(sql`
-    select period from expenses
+    select period from expenses where user_id = ${userId}
     union
-    select period from plan_items
+    select period from plan_items where user_id = ${userId}
     order by period desc
   `);
   return rows.rows.map((r) => r.period);
@@ -471,6 +496,7 @@ export async function getActivePeriods(): Promise<string[]> {
 
 /** Gasto por día del mes, para el mini gráfico del dashboard. */
 export async function getDailySpend(period: string): Promise<{ day: number; amount: number }[]> {
+  const userId = await requireUserId();
   const { start, end } = periodRange(period);
   const rows = await db
     .select({
@@ -478,7 +504,7 @@ export async function getDailySpend(period: string): Promise<{ day: number; amou
       total: sql<string>`sum(${expenses.amount})`,
     })
     .from(expenses)
-    .where(and(gte(expenses.spentOn, start), lte(expenses.spentOn, end)))
+    .where(and(eq(expenses.userId, userId), gte(expenses.spentOn, start), lte(expenses.spentOn, end)))
     .groupBy(expenses.spentOn)
     .orderBy(asc(expenses.spentOn));
 
@@ -495,6 +521,7 @@ export type IncomeCategoryRow = {
 };
 
 export async function getIncomeCategories(): Promise<IncomeCategoryRow[]> {
+  const userId = await requireUserId();
   return db
     .select({
       id: incomeCategories.id,
@@ -503,6 +530,7 @@ export async function getIncomeCategories(): Promise<IncomeCategoryRow[]> {
       color: incomeCategories.color,
     })
     .from(incomeCategories)
+    .where(eq(incomeCategories.userId, userId))
     .orderBy(asc(incomeCategories.sortOrder), asc(incomeCategories.name));
 }
 
@@ -522,6 +550,7 @@ export type IncomeRow = {
 };
 
 export async function getIncomes(period: string): Promise<IncomeRow[]> {
+  const userId = await requireUserId();
   const rows = await db
     .select({
       id: incomes.id,
@@ -540,14 +569,19 @@ export async function getIncomes(period: string): Promise<IncomeRow[]> {
     .from(incomes)
     .innerJoin(incomeCategories, eq(incomeCategories.id, incomes.categoryId))
     .leftJoin(accounts, eq(accounts.id, incomes.accountId))
-    .where(eq(incomes.period, period))
+    .where(and(eq(incomes.userId, userId), eq(incomes.period, period)))
     .orderBy(desc(incomes.receivedOn), desc(incomes.id));
 
   return rows.map((r) => ({ ...r, amount: toNumber(r.amount) }));
 }
 
 export async function getIncome(id: number) {
-  const [row] = await db.select().from(incomes).where(eq(incomes.id, id)).limit(1);
+  const userId = await requireUserId();
+  const [row] = await db
+    .select()
+    .from(incomes)
+    .where(and(eq(incomes.id, id), eq(incomes.userId, userId)))
+    .limit(1);
   return row ?? null;
 }
 
@@ -557,6 +591,7 @@ export type IncomeSummary = {
 };
 
 export async function getIncomeSummary(period: string): Promise<IncomeSummary> {
+  const userId = await requireUserId();
   const rows = await db
     .select({
       categoryId: incomes.categoryId,
@@ -567,7 +602,7 @@ export async function getIncomeSummary(period: string): Promise<IncomeSummary> {
     })
     .from(incomes)
     .innerJoin(incomeCategories, eq(incomeCategories.id, incomes.categoryId))
-    .where(eq(incomes.period, period))
+    .where(and(eq(incomes.userId, userId), eq(incomes.period, period)))
     .groupBy(incomes.categoryId, incomeCategories.name, incomeCategories.icon, incomeCategories.color)
     .orderBy(desc(sql`sum(${incomes.amount})`));
 
@@ -577,9 +612,11 @@ export async function getIncomeSummary(period: string): Promise<IncomeSummary> {
 
 /** Cuántos ingresos tiene cada categoría, para saber si se puede borrar. */
 export async function getIncomeCategoryUsage(): Promise<Map<number, number>> {
+  const userId = await requireUserId();
   const rows = await db
     .select({ categoryId: incomes.categoryId, uses: sql<number>`count(*)::int` })
     .from(incomes)
+    .where(eq(incomes.userId, userId))
     .groupBy(incomes.categoryId);
   return new Map(rows.map((r) => [r.categoryId, r.uses]));
 }
@@ -596,6 +633,7 @@ export type AccountRow = {
 };
 
 export async function getAccounts(includeInactive = false): Promise<AccountRow[]> {
+  const userId = await requireUserId();
   const rows = await db
     .select({
       id: accounts.id,
@@ -606,7 +644,12 @@ export async function getAccounts(includeInactive = false): Promise<AccountRow[]
       isActive: accounts.isActive,
     })
     .from(accounts)
-    .where(includeInactive ? undefined : eq(accounts.isActive, true))
+    .where(
+      and(
+        eq(accounts.userId, userId),
+        includeInactive ? undefined : eq(accounts.isActive, true),
+      ),
+    )
     .orderBy(asc(accounts.sortOrder), asc(accounts.name));
 
   return rows.map((r) => ({ ...r, openingBalance: toNumber(r.openingBalance) }));
@@ -634,6 +677,7 @@ export type AccountsOverview = {
  * la plata que te quedó en agosto sigue estando ahí en septiembre.
  */
 export async function getAccountsOverview(): Promise<AccountsOverview> {
+  const userId = await requireUserId();
   const [list, paidRows, receivedRows, looseExpenses, looseIncomes] = await Promise.all([
     getAccounts(true),
     db
@@ -643,6 +687,7 @@ export async function getAccountsOverview(): Promise<AccountsOverview> {
         uses: sql<number>`count(*)::int`,
       })
       .from(expenses)
+      .where(eq(expenses.userId, userId))
       .groupBy(expenses.accountId),
     db
       .select({
@@ -651,15 +696,16 @@ export async function getAccountsOverview(): Promise<AccountsOverview> {
         uses: sql<number>`count(*)::int`,
       })
       .from(incomes)
+      .where(eq(incomes.userId, userId))
       .groupBy(incomes.accountId),
     db
       .select({ total: sql<string>`coalesce(sum(${expenses.amount}), 0)`, uses: sql<number>`count(*)::int` })
       .from(expenses)
-      .where(isNull(expenses.accountId)),
+      .where(and(eq(expenses.userId, userId), isNull(expenses.accountId))),
     db
       .select({ total: sql<string>`coalesce(sum(${incomes.amount}), 0)`, uses: sql<number>`count(*)::int` })
       .from(incomes)
-      .where(isNull(incomes.accountId)),
+      .where(and(eq(incomes.userId, userId), isNull(incomes.accountId))),
   ]);
 
   const paidBy = new Map(paidRows.map((r) => [r.accountId, { total: toNumber(r.total), uses: r.uses }]));
@@ -691,6 +737,11 @@ export async function getAccountsOverview(): Promise<AccountsOverview> {
 }
 
 export async function getAccount(id: number) {
-  const [row] = await db.select().from(accounts).where(eq(accounts.id, id)).limit(1);
+  const userId = await requireUserId();
+  const [row] = await db
+    .select()
+    .from(accounts)
+    .where(and(eq(accounts.id, id), eq(accounts.userId, userId)))
+    .limit(1);
   return row ?? null;
 }
