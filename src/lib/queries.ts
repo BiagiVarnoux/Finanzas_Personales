@@ -1,5 +1,6 @@
 import "server-only";
 import { and, asc, desc, eq, gte, ilike, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
 import {
   accounts,
@@ -10,6 +11,7 @@ import {
   planItems,
   products,
   subcategories,
+  transfers,
 } from "@/db/schema";
 import { requireUserId } from "./current-user";
 import { toNumber } from "./format";
@@ -656,11 +658,15 @@ export async function getAccounts(includeInactive = false): Promise<AccountRow[]
 }
 
 export type AccountBalance = AccountRow & {
-  /** Todo lo que entró a esta cuenta, desde siempre */
+  /** Ingresos que entraron a esta cuenta, desde siempre */
   received: number;
-  /** Todo lo que salió de esta cuenta, desde siempre */
+  /** Gastos que salieron de esta cuenta, desde siempre */
   paid: number;
-  /** openingBalance + received - paid */
+  /** Plata que llegó desde otra cuenta propia */
+  transferredIn: number;
+  /** Plata que se mandó a otra cuenta propia */
+  transferredOut: number;
+  /** openingBalance + received + transferredIn - paid - transferredOut */
   balance: number;
   movements: number;
 };
@@ -678,7 +684,8 @@ export type AccountsOverview = {
  */
 export async function getAccountsOverview(): Promise<AccountsOverview> {
   const userId = await requireUserId();
-  const [list, paidRows, receivedRows, looseExpenses, looseIncomes] = await Promise.all([
+  const [list, paidRows, receivedRows, outRows, inRows, looseExpenses, looseIncomes] =
+    await Promise.all([
     getAccounts(true),
     db
       .select({
@@ -699,6 +706,24 @@ export async function getAccountsOverview(): Promise<AccountsOverview> {
       .where(eq(incomes.userId, userId))
       .groupBy(incomes.accountId),
     db
+      .select({
+        accountId: transfers.fromAccountId,
+        total: sql<string>`coalesce(sum(${transfers.amount}), 0)`,
+        uses: sql<number>`count(*)::int`,
+      })
+      .from(transfers)
+      .where(eq(transfers.userId, userId))
+      .groupBy(transfers.fromAccountId),
+    db
+      .select({
+        accountId: transfers.toAccountId,
+        total: sql<string>`coalesce(sum(${transfers.amount}), 0)`,
+        uses: sql<number>`count(*)::int`,
+      })
+      .from(transfers)
+      .where(eq(transfers.userId, userId))
+      .groupBy(transfers.toAccountId),
+    db
       .select({ total: sql<string>`coalesce(sum(${expenses.amount}), 0)`, uses: sql<number>`count(*)::int` })
       .from(expenses)
       .where(and(eq(expenses.userId, userId), isNull(expenses.accountId))),
@@ -713,15 +738,26 @@ export async function getAccountsOverview(): Promise<AccountsOverview> {
     receivedRows.map((r) => [r.accountId, { total: toNumber(r.total), uses: r.uses }]),
   );
 
+  const outBy = new Map(outRows.map((r) => [r.accountId, { total: toNumber(r.total), uses: r.uses }]));
+  const inBy = new Map(inRows.map((r) => [r.accountId, { total: toNumber(r.total), uses: r.uses }]));
+
   const withBalances = list.map((account) => {
-    const paid = paidBy.get(account.id);
-    const received = receivedBy.get(account.id);
+    const paid = paidBy.get(account.id)?.total ?? 0;
+    const received = receivedBy.get(account.id)?.total ?? 0;
+    const transferredOut = outBy.get(account.id)?.total ?? 0;
+    const transferredIn = inBy.get(account.id)?.total ?? 0;
     return {
       ...account,
-      paid: paid?.total ?? 0,
-      received: received?.total ?? 0,
-      balance: account.openingBalance + (received?.total ?? 0) - (paid?.total ?? 0),
-      movements: (paid?.uses ?? 0) + (received?.uses ?? 0),
+      paid,
+      received,
+      transferredOut,
+      transferredIn,
+      balance: account.openingBalance + received + transferredIn - paid - transferredOut,
+      movements:
+        (paidBy.get(account.id)?.uses ?? 0) +
+        (receivedBy.get(account.id)?.uses ?? 0) +
+        (outBy.get(account.id)?.uses ?? 0) +
+        (inBy.get(account.id)?.uses ?? 0),
     };
   });
 
@@ -834,6 +870,64 @@ export async function getCategory(id: number) {
     .select()
     .from(categories)
     .where(and(eq(categories.id, id), eq(categories.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/* ── Transferencias entre cuentas ────────────────────────────────────────── */
+
+export type TransferRow = {
+  id: number;
+  transferredOn: string;
+  amount: number;
+  note: string | null;
+  fromAccountId: number;
+  fromName: string;
+  fromIcon: string;
+  toAccountId: number;
+  toName: string;
+  toIcon: string;
+};
+
+/**
+ * Las transferencias del usuario, de la más reciente a la más vieja.
+ * Si se pasa un mes, solo las de ese mes.
+ */
+export async function getTransfers(period?: string, limit = 50): Promise<TransferRow[]> {
+  const userId = await requireUserId();
+
+  const origen = alias(accounts, "origen");
+  const destino = alias(accounts, "destino");
+
+  const rows = await db
+    .select({
+      id: transfers.id,
+      transferredOn: transfers.transferredOn,
+      amount: transfers.amount,
+      note: transfers.note,
+      fromAccountId: transfers.fromAccountId,
+      fromName: origen.name,
+      fromIcon: origen.icon,
+      toAccountId: transfers.toAccountId,
+      toName: destino.name,
+      toIcon: destino.icon,
+    })
+    .from(transfers)
+    .innerJoin(origen, eq(origen.id, transfers.fromAccountId))
+    .innerJoin(destino, eq(destino.id, transfers.toAccountId))
+    .where(and(eq(transfers.userId, userId), period ? eq(transfers.period, period) : undefined))
+    .orderBy(desc(transfers.transferredOn), desc(transfers.id))
+    .limit(limit);
+
+  return rows.map((r) => ({ ...r, amount: toNumber(r.amount) }));
+}
+
+export async function getTransfer(id: number) {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select()
+    .from(transfers)
+    .where(and(eq(transfers.id, id), eq(transfers.userId, userId)))
     .limit(1);
   return row ?? null;
 }

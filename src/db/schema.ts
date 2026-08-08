@@ -131,6 +131,41 @@ export const accounts = pgTable(
 );
 
 /**
+ * Plata que se mueve de una cuenta a otra: sacar del banco para tener efectivo,
+ * pasar del efectivo al QR, etc.
+ *
+ * Va en su propia tabla y no como gasto + ingreso a propósito: no gastaste ni
+ * ganaste nada, solo cambiaste de lugar la plata. Si se registrara como los dos
+ * movimientos, el mes te mostraría un gasto y un ingreso que no existieron.
+ */
+export const transfers = pgTable(
+  "transfers",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    transferredOn: date("transferred_on").notNull(),
+    /** 'YYYY-MM' derivado de transferredOn */
+    period: varchar("period", { length: 7 }).notNull(),
+    fromAccountId: integer("from_account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    toAccountId: integer("to_account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("transfers_user_period_idx").on(t.userId, t.period),
+    index("transfers_from_idx").on(t.fromAccountId),
+    index("transfers_to_idx").on(t.toAccountId),
+  ],
+);
+
+/**
  * Los ingresos tienen su propia lista de categorías (Sueldo, Negocio, Ventas…),
  * separada de las de gasto para que los desplegables no se mezclen.
  */
@@ -257,3 +292,4 @@ export type Expense = typeof expenses.$inferSelect;
 export type IncomeCategory = typeof incomeCategories.$inferSelect;
 export type Income = typeof incomes.$inferSelect;
 export type Account = typeof accounts.$inferSelect;
+export type Transfer = typeof transfers.$inferSelect;

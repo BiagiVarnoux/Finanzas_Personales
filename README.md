@@ -136,3 +136,6 @@ El aislamiento no depende del portero de rutas, sino de los datos:
 - Los meses se calculan en hora de Bolivia (`America/La_Paz`), así un gasto cargado a
   las 11 de la noche del 31 no se va al mes siguiente.
 - Los productos no se borran, se archivan: los gastos viejos los siguen referenciando.
+- Pasar plata entre cuentas propias vive en su propia tabla (`transfers`), no como
+  un gasto más un ingreso: mover plata del banco al efectivo no es ni gastar ni
+  ganar, y registrarlo como esos dos movimientos inflaría los totales del mes.

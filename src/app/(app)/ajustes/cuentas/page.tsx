@@ -3,12 +3,16 @@ import { archiveAccount, deleteAccount, restoreAccount } from "@/app/actions/acc
 import { AccountForm } from "@/components/account-form";
 import { Card, Chip, EmptyState, PageHeader } from "@/components/ui";
 import { bs } from "@/lib/format";
-import { getAccountsOverview } from "@/lib/queries";
+import { dayLabel } from "@/lib/period";
+import { getAccountsOverview, getTransfers } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountsPage() {
-  const { accounts, total, unassigned } = await getAccountsOverview();
+  const [{ accounts, total, unassigned }, transfers] = await Promise.all([
+    getAccountsOverview(),
+    getTransfers(undefined, 15),
+  ]);
   const active = accounts.filter((a) => a.isActive);
   const archived = accounts.filter((a) => !a.isActive);
 
@@ -17,9 +21,18 @@ export default async function AccountsPage() {
       <PageHeader
         title="Cuentas"
         action={
-          <Link href="/ajustes" className="text-sm font-medium text-muted">
-            Volver
-          </Link>
+          active.length >= 2 ? (
+            <Link
+              href="/ajustes/cuentas/transferir"
+              className="rounded-full bg-accent px-3.5 py-1.5 text-sm font-semibold text-white active:opacity-80"
+            >
+              Transferir
+            </Link>
+          ) : (
+            <Link href="/ajustes" className="text-sm font-medium text-muted">
+              Volver
+            </Link>
+          )
         }
       />
 
@@ -76,6 +89,11 @@ export default async function AccountsPage() {
                         <Chip tone="good">+{bs(account.received)}</Chip>
                       )}
                       {account.paid > 0 && <Chip tone="bad">−{bs(account.paid)}</Chip>}
+                      {(account.transferredIn > 0 || account.transferredOut > 0) && (
+                        <Chip>
+                          ⇄ {bs(account.transferredIn - account.transferredOut)}
+                        </Chip>
+                      )}
 
                       <span className="ml-auto flex gap-3">
                         <Link
@@ -146,6 +164,40 @@ export default async function AccountsPage() {
                 ))}
               </ul>
             </Card>
+          </div>
+        )}
+
+        {transfers.length > 0 && (
+          <div>
+            <h2 className="mb-1.5 px-1 text-xs font-medium text-muted">Entre cuentas</h2>
+            <Card>
+              <ul className="divide-y divide-border">
+                {transfers.map((t) => (
+                  <li key={t.id}>
+                    <Link
+                      href={`/ajustes/cuentas/transferir/${t.id}`}
+                      className="flex items-center gap-3 px-4 py-3 active:bg-surface-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {t.fromIcon} {t.fromName} <span className="text-muted">→</span> {t.toIcon}{" "}
+                          {t.toName}
+                        </p>
+                        <p className="truncate text-xs text-muted">
+                          {dayLabel(t.transferredOn)}
+                          {t.note && ` · ${t.note}`}
+                        </p>
+                      </div>
+                      <span className="tabular text-sm font-semibold">{bs(t.amount)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <p className="mt-1.5 px-1 text-xs text-muted">
+              Mover plata entre tus cuentas no cuenta como gasto ni como ingreso: los totales del
+              mes no cambian, solo cambia dónde está.
+            </p>
           </div>
         )}
 
