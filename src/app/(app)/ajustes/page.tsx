@@ -2,17 +2,21 @@ import Link from "next/link";
 import { logout } from "@/app/login/actions";
 import { ChevronRight } from "@/components/icons";
 import { Card, PageHeader } from "@/components/ui";
+import { bsShort } from "@/lib/format";
 import { currentPeriod } from "@/lib/period";
-import { getCategories, getIncomeCategories, getProducts } from "@/lib/queries";
+import { getAccountsOverview, getCategories, getIncomeCategories, getProducts } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [categories, incomeCategories, products] = await Promise.all([
+  const [categories, incomeCategories, products, wallet] = await Promise.all([
     getCategories(),
     getIncomeCategories(),
     getProducts(),
+    getAccountsOverview(),
   ]);
+
+  const activeAccounts = wallet.accounts.filter((a) => a.isActive);
 
   const activeProducts = products.filter((p) => p.isActive).length;
   const subcategoryCount = categories.reduce((sum, c) => sum + c.subcategories.length, 0);
@@ -31,6 +35,16 @@ export default async function SettingsPage() {
               icon="💰"
               title="Ingresos del mes"
               detail="Sueldo, ventas y demás entradas"
+            />
+            <Row
+              href="/ajustes/cuentas"
+              icon="💵"
+              title="Cuentas"
+              detail={
+                activeAccounts.length === 0
+                  ? "Efectivo, banco, QR: todavía ninguna"
+                  : `${activeAccounts.length} ${activeAccounts.length === 1 ? "cuenta" : "cuentas"} · ${bsShort(wallet.total)} disponibles`
+              }
             />
             <Row
               href={`/plan?mes=${period}`}

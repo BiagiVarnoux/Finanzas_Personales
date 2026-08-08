@@ -7,10 +7,13 @@ const NEW = "__new__";
 export type PickableCategory = { id: number; name: string; icon: string };
 
 /**
- * Selector de categoría con una opción para crear una nueva sin salir del
- * formulario. Al elegir "Crear nueva", el <select> deja de mandar categoryId y
- * en su lugar viajan newCategoryName y newCategoryIcon, que la Server Action
- * usa para dar de alta la categoría antes de guardar.
+ * Selector con una opción para crear el elemento sin salir del formulario.
+ * Al elegir "Crear nueva", el <select> deja de mandar el id y en su lugar viajan
+ * los campos de nombre y emoji, que la Server Action usa para darlo de alta
+ * antes de guardar.
+ *
+ * Sirve para categorías de gasto, de ingreso y para cuentas: solo cambian los
+ * nombres de los campos del formulario.
  */
 export function CategoryPicker({
   categories,
@@ -19,6 +22,12 @@ export function CategoryPicker({
   label = "Categoría",
   defaultIcon = "📦",
   createLabel = "Crear categoría nueva…",
+  emptyLabel = "Elegir…",
+  fieldName = "categoryId",
+  newNameField = "newCategoryName",
+  newIconField = "newCategoryIcon",
+  namePlaceholder = "Nombre de la categoría nueva",
+  optional = false,
 }: {
   categories: PickableCategory[];
   value: number | null;
@@ -26,9 +35,16 @@ export function CategoryPicker({
   label?: string;
   defaultIcon?: string;
   createLabel?: string;
+  emptyLabel?: string;
+  fieldName?: string;
+  newNameField?: string;
+  newIconField?: string;
+  namePlaceholder?: string;
+  /** Si es opcional, no arranca en modo creación aunque no haya nada cargado. */
+  optional?: boolean;
 }) {
-  // Si todavía no hay ninguna categoría, arrancamos directo en modo creación.
-  const [creating, setCreating] = useState(categories.length === 0);
+  // Si todavía no hay ninguna opción, arrancamos directo en modo creación.
+  const [creating, setCreating] = useState(!optional && categories.length === 0);
 
   return (
     <div>
@@ -48,7 +64,7 @@ export function CategoryPicker({
         }}
         className="w-full appearance-none rounded-xl border border-border bg-surface px-3 py-3 outline-none focus:border-accent"
       >
-        <option value="">Elegir…</option>
+        <option value="">{emptyLabel}</option>
         {categories.map((c) => (
           <option key={c.id} value={c.id}>
             {c.icon} {c.name}
@@ -58,21 +74,21 @@ export function CategoryPicker({
       </select>
 
       {/* Solo se manda cuando no estamos creando, para no pisar el nombre nuevo. */}
-      {!creating && <input type="hidden" name="categoryId" value={value ?? ""} />}
+      {!creating && <input type="hidden" name={fieldName} value={value ?? ""} />}
 
       {creating && (
         <div className="mt-2 flex gap-2">
           <input
-            name="newCategoryIcon"
+            name={newIconField}
             defaultValue={defaultIcon}
-            aria-label="Emoji de la categoría nueva"
+            aria-label="Emoji"
             maxLength={4}
             className="w-14 rounded-xl border border-border bg-surface px-2 py-3 text-center outline-none focus:border-accent"
           />
           <input
-            name="newCategoryName"
-            placeholder="Nombre de la categoría nueva"
-            aria-label="Nombre de la categoría nueva"
+            name={newNameField}
+            placeholder={namePlaceholder}
+            aria-label={namePlaceholder}
             autoFocus={categories.length > 0}
             className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-3 outline-none focus:border-accent"
           />

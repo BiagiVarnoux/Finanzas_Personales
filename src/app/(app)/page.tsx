@@ -3,7 +3,7 @@ import { MonthSwitcher } from "@/components/month-switcher";
 import { Card, Chip, EmptyState, PageHeader, ProgressBar } from "@/components/ui";
 import { bs, pct } from "@/lib/format";
 import { currentPeriod, dayLabel, isValidPeriod, periodProgress } from "@/lib/period";
-import { getExpenses, getIncomeSummary, getMonthSummary } from "@/lib/queries";
+import { getAccountsOverview, getExpenses, getIncomeSummary, getMonthSummary } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -15,11 +15,14 @@ export default async function DashboardPage({
   const { mes } = await searchParams;
   const period = isValidPeriod(mes) ? mes : currentPeriod();
 
-  const [summary, recent, income] = await Promise.all([
+  const [summary, recent, income, wallet] = await Promise.all([
     getMonthSummary(period),
     getExpenses(period),
     getIncomeSummary(period),
+    getAccountsOverview(),
   ]);
+
+  const activeAccounts = wallet.accounts.filter((a) => a.isActive);
 
   const balance = income.total - summary.spent;
   const remaining = summary.planned - summary.spent;
@@ -94,6 +97,52 @@ export default async function DashboardPage({
                 Armarlo ahora →
               </Link>
             </p>
+          )}
+        </Card>
+
+        {/* Dónde está la plata: saldo acumulado de cada cuenta, no del mes. */}
+        <Card>
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <h2 className="text-sm font-semibold">Dónde está la plata</h2>
+            <Link href="/ajustes/cuentas" className="text-xs font-medium text-accent">
+              {activeAccounts.length === 0 ? "Crear cuentas" : "Administrar"}
+            </Link>
+          </div>
+
+          {activeAccounts.length === 0 ? (
+            <p className="px-4 py-5 text-center text-sm text-muted">
+              Creá tus cuentas (efectivo, banco, QR) y marcá en cada gasto o ingreso de dónde sale
+              la plata.
+            </p>
+          ) : (
+            <>
+              <ul className="divide-y divide-border">
+                {activeAccounts.map((account) => (
+                  <li key={account.id} className="flex items-center gap-3 px-4 py-3">
+                    <span
+                      className="h-8 w-8 shrink-0 rounded-full text-center text-base leading-8"
+                      style={{ backgroundColor: `${account.color}22` }}
+                    >
+                      {account.icon}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {account.name}
+                    </span>
+                    <span
+                      className={`tabular text-sm font-semibold ${
+                        account.balance < 0 ? "text-danger" : ""
+                      }`}
+                    >
+                      {bs(account.balance)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex items-baseline justify-between border-t border-border px-4 py-3">
+                <span className="text-sm font-medium">Total</span>
+                <span className="tabular text-base font-semibold">{bs(wallet.total)}</span>
+              </div>
+            </>
           )}
         </Card>
 

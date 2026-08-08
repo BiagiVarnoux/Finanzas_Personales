@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  accounts,
   categories,
   expenses,
   incomeCategories,
@@ -253,6 +254,9 @@ export type ExpenseRow = {
   categoryColor: string;
   subcategoryId: number | null;
   subcategoryName: string | null;
+  accountId: number | null;
+  accountName: string | null;
+  accountIcon: string | null;
 };
 
 export async function getExpenses(
@@ -276,10 +280,14 @@ export async function getExpenses(
       categoryColor: categories.color,
       subcategoryId: expenses.subcategoryId,
       subcategoryName: subcategories.name,
+      accountId: expenses.accountId,
+      accountName: accounts.name,
+      accountIcon: accounts.icon,
     })
     .from(expenses)
     .innerJoin(categories, eq(categories.id, expenses.categoryId))
     .leftJoin(subcategories, eq(subcategories.id, expenses.subcategoryId))
+    .leftJoin(accounts, eq(accounts.id, expenses.accountId))
     .where(
       and(
         eq(expenses.period, period),
@@ -508,6 +516,9 @@ export type IncomeRow = {
   categoryName: string;
   categoryIcon: string;
   categoryColor: string;
+  accountId: number | null;
+  accountName: string | null;
+  accountIcon: string | null;
 };
 
 export async function getIncomes(period: string): Promise<IncomeRow[]> {
@@ -522,9 +533,13 @@ export async function getIncomes(period: string): Promise<IncomeRow[]> {
       categoryName: incomeCategories.name,
       categoryIcon: incomeCategories.icon,
       categoryColor: incomeCategories.color,
+      accountId: incomes.accountId,
+      accountName: accounts.name,
+      accountIcon: accounts.icon,
     })
     .from(incomes)
     .innerJoin(incomeCategories, eq(incomeCategories.id, incomes.categoryId))
+    .leftJoin(accounts, eq(accounts.id, incomes.accountId))
     .where(eq(incomes.period, period))
     .orderBy(desc(incomes.receivedOn), desc(incomes.id));
 
@@ -567,4 +582,115 @@ export async function getIncomeCategoryUsage(): Promise<Map<number, number>> {
     .from(incomes)
     .groupBy(incomes.categoryId);
   return new Map(rows.map((r) => [r.categoryId, r.uses]));
+}
+
+/* ── Cuentas (dónde está la plata) ───────────────────────────────────────── */
+
+export type AccountRow = {
+  id: number;
+  name: string;
+  icon: string;
+  color: string;
+  openingBalance: number;
+  isActive: boolean;
+};
+
+export async function getAccounts(includeInactive = false): Promise<AccountRow[]> {
+  const rows = await db
+    .select({
+      id: accounts.id,
+      name: accounts.name,
+      icon: accounts.icon,
+      color: accounts.color,
+      openingBalance: accounts.openingBalance,
+      isActive: accounts.isActive,
+    })
+    .from(accounts)
+    .where(includeInactive ? undefined : eq(accounts.isActive, true))
+    .orderBy(asc(accounts.sortOrder), asc(accounts.name));
+
+  return rows.map((r) => ({ ...r, openingBalance: toNumber(r.openingBalance) }));
+}
+
+export type AccountBalance = AccountRow & {
+  /** Todo lo que entró a esta cuenta, desde siempre */
+  received: number;
+  /** Todo lo que salió de esta cuenta, desde siempre */
+  paid: number;
+  /** openingBalance + received - paid */
+  balance: number;
+  movements: number;
+};
+
+export type AccountsOverview = {
+  accounts: AccountBalance[];
+  total: number;
+  /** Movimientos que todavía no tienen cuenta asignada */
+  unassigned: { expenses: number; incomes: number; count: number };
+};
+
+/**
+ * Saldo actual de cada cuenta. Es acumulado desde siempre, no del mes:
+ * la plata que te quedó en agosto sigue estando ahí en septiembre.
+ */
+export async function getAccountsOverview(): Promise<AccountsOverview> {
+  const [list, paidRows, receivedRows, looseExpenses, looseIncomes] = await Promise.all([
+    getAccounts(true),
+    db
+      .select({
+        accountId: expenses.accountId,
+        total: sql<string>`coalesce(sum(${expenses.amount}), 0)`,
+        uses: sql<number>`count(*)::int`,
+      })
+      .from(expenses)
+      .groupBy(expenses.accountId),
+    db
+      .select({
+        accountId: incomes.accountId,
+        total: sql<string>`coalesce(sum(${incomes.amount}), 0)`,
+        uses: sql<number>`count(*)::int`,
+      })
+      .from(incomes)
+      .groupBy(incomes.accountId),
+    db
+      .select({ total: sql<string>`coalesce(sum(${expenses.amount}), 0)`, uses: sql<number>`count(*)::int` })
+      .from(expenses)
+      .where(isNull(expenses.accountId)),
+    db
+      .select({ total: sql<string>`coalesce(sum(${incomes.amount}), 0)`, uses: sql<number>`count(*)::int` })
+      .from(incomes)
+      .where(isNull(incomes.accountId)),
+  ]);
+
+  const paidBy = new Map(paidRows.map((r) => [r.accountId, { total: toNumber(r.total), uses: r.uses }]));
+  const receivedBy = new Map(
+    receivedRows.map((r) => [r.accountId, { total: toNumber(r.total), uses: r.uses }]),
+  );
+
+  const withBalances = list.map((account) => {
+    const paid = paidBy.get(account.id);
+    const received = receivedBy.get(account.id);
+    return {
+      ...account,
+      paid: paid?.total ?? 0,
+      received: received?.total ?? 0,
+      balance: account.openingBalance + (received?.total ?? 0) - (paid?.total ?? 0),
+      movements: (paid?.uses ?? 0) + (received?.uses ?? 0),
+    };
+  });
+
+  return {
+    accounts: withBalances,
+    total: withBalances.filter((a) => a.isActive).reduce((sum, a) => sum + a.balance, 0),
+    unassigned: {
+      expenses: toNumber(looseExpenses[0]?.total),
+      incomes: toNumber(looseIncomes[0]?.total),
+      count: (looseExpenses[0]?.uses ?? 0) + (looseIncomes[0]?.uses ?? 0),
+    },
+  };
+}
+
+export async function getAccount(id: number) {
+  const [row] = await db.select().from(accounts).where(eq(accounts.id, id)).limit(1);
+  return row ?? null;
 }

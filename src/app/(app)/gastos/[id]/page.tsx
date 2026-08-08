@@ -5,7 +5,7 @@ import { ExpenseForm } from "@/components/expense-form";
 import { TrashIcon } from "@/components/icons";
 import { PageHeader } from "@/components/ui";
 import { toNumber } from "@/lib/format";
-import { getCategories, getExpense, getProducts } from "@/lib/queries";
+import { getAccounts, getCategories, getExpense, getProducts } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +14,11 @@ export default async function EditExpensePage({ params }: { params: Promise<{ id
   const expenseId = Number(id);
   if (!Number.isInteger(expenseId)) notFound();
 
-  const [expense, products, categories] = await Promise.all([
+  const [expense, products, categories, accounts] = await Promise.all([
     getExpense(expenseId),
     getProducts(),
     getCategories(),
+    getAccounts(),
   ]);
   if (!expense) notFound();
 
@@ -35,6 +36,7 @@ export default async function EditExpensePage({ params }: { params: Promise<{ id
         <ExpenseForm
           products={products}
           categories={categories}
+          accounts={accounts}
           frequent={[]}
           initial={{
             id: expense.id,
@@ -48,6 +50,7 @@ export default async function EditExpensePage({ params }: { params: Promise<{ id
             amount: toNumber(expense.amount),
             spentOn: expense.spentOn,
             note: expense.note ?? "",
+            accountId: expense.accountId,
           }}
         />
 

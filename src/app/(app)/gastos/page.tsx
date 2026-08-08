@@ -149,6 +149,7 @@ export default async function ExpensesPage({
                             {grouping === "dia"
                               ? (expense.subcategoryName ?? expense.categoryName)
                               : dayLabel(expense.spentOn)}
+                            {expense.accountName && ` · ${expense.accountIcon} ${expense.accountName}`}
                             {expense.note && ` · ${expense.note}`}
                           </p>
                         </div>

@@ -5,7 +5,7 @@ import { TrashIcon } from "@/components/icons";
 import { IncomeForm } from "@/components/income-form";
 import { PageHeader } from "@/components/ui";
 import { toNumber } from "@/lib/format";
-import { getIncome, getIncomeCategories } from "@/lib/queries";
+import { getAccounts, getIncome, getIncomeCategories } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,11 @@ export default async function EditIncomePage({ params }: { params: Promise<{ id:
   const incomeId = Number(id);
   if (!Number.isInteger(incomeId)) notFound();
 
-  const [income, categories] = await Promise.all([getIncome(incomeId), getIncomeCategories()]);
+  const [income, categories, accounts] = await Promise.all([
+    getIncome(incomeId),
+    getIncomeCategories(),
+    getAccounts(),
+  ]);
   if (!income) notFound();
 
   return (
@@ -30,6 +34,7 @@ export default async function EditIncomePage({ params }: { params: Promise<{ id:
       <main className="mx-auto max-w-lg space-y-6 px-4 py-4">
         <IncomeForm
           categories={categories}
+          accounts={accounts}
           initial={{
             id: income.id,
             description: income.description,
@@ -37,6 +42,7 @@ export default async function EditIncomePage({ params }: { params: Promise<{ id:
             amount: toNumber(income.amount),
             receivedOn: income.receivedOn,
             note: income.note ?? "",
+            accountId: income.accountId,
           }}
         />
 

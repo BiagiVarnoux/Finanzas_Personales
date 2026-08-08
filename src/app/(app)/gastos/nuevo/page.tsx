@@ -2,15 +2,16 @@ import Link from "next/link";
 import { ExpenseForm } from "@/components/expense-form";
 import { PageHeader } from "@/components/ui";
 import { todayISO } from "@/lib/period";
-import { getCategories, getFrequentProducts, getProducts } from "@/lib/queries";
+import { getAccounts, getCategories, getFrequentProducts, getProducts } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewExpensePage() {
-  const [products, categories, frequent] = await Promise.all([
+  const [products, categories, frequent, accounts] = await Promise.all([
     getProducts(),
     getCategories(),
     getFrequentProducts(),
+    getAccounts(),
   ]);
 
   return (
@@ -27,6 +28,7 @@ export default async function NewExpensePage() {
         <ExpenseForm
           products={products}
           categories={categories}
+          accounts={accounts}
           frequent={frequent}
           initial={{
             productId: null,
@@ -39,6 +41,7 @@ export default async function NewExpensePage() {
             amount: 0,
             spentOn: todayISO(),
             note: "",
+            accountId: accounts.length === 1 ? accounts[0].id : null,
           }}
         />
       </main>

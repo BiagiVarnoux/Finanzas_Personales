@@ -110,6 +110,7 @@ export default async function IncomesPage({
                           <p className="truncate text-sm font-medium">{item.description}</p>
                           <p className="truncate text-xs text-muted">
                             {dayLabel(item.receivedOn)}
+                            {item.accountName && ` · ${item.accountIcon} ${item.accountName}`}
                             {item.note && ` · ${item.note}`}
                           </p>
                         </div>

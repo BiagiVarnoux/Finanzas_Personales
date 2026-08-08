@@ -4,7 +4,7 @@ import { useActionState, useState } from "react";
 import { saveIncome } from "@/app/actions/incomes";
 import type { FormState } from "@/app/actions/expenses";
 import { bs, toNumber } from "@/lib/format";
-import type { IncomeCategoryRow } from "@/lib/queries";
+import type { AccountRow, IncomeCategoryRow } from "@/lib/queries";
 import { CategoryPicker } from "./category-picker";
 
 export type IncomeInitial = {
@@ -14,18 +14,22 @@ export type IncomeInitial = {
   amount: number;
   receivedOn: string;
   note: string;
+  accountId: number | null;
 };
 
 export function IncomeForm({
   categories,
+  accounts,
   initial,
 }: {
   categories: IncomeCategoryRow[];
+  accounts: AccountRow[];
   initial: IncomeInitial;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(saveIncome, {});
   const [categoryId, setCategoryId] = useState<number | null>(initial.categoryId);
   const [amount, setAmount] = useState(initial.amount ? String(initial.amount) : "");
+  const [accountId, setAccountId] = useState<number | null>(initial.accountId);
 
   return (
     <form action={formAction} className="space-y-4">
@@ -63,6 +67,21 @@ export function IncomeForm({
         onChange={setCategoryId}
         defaultIcon="💰"
         createLabel="Crear categoría de ingreso…"
+      />
+
+      <CategoryPicker
+        categories={accounts}
+        value={accountId}
+        onChange={setAccountId}
+        label="¿A dónde entró la plata?"
+        emptyLabel="Sin especificar"
+        defaultIcon="💵"
+        createLabel="Crear cuenta nueva…"
+        namePlaceholder="Efectivo, Banco, QR…"
+        fieldName="accountId"
+        newNameField="newAccountName"
+        newIconField="newAccountIcon"
+        optional
       />
 
       <div className="grid grid-cols-2 gap-3">

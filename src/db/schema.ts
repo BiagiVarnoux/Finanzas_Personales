@@ -115,6 +115,8 @@ export const expenses = pgTable(
     unit: text("unit").notNull().default("unidad"),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
     amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    /** De qué cuenta salió la plata. Null = gastos viejos, cargados antes de tener cuentas. */
+    accountId: integer("account_id").references(() => accounts.id, { onDelete: "set null" }),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -122,8 +124,27 @@ export const expenses = pgTable(
     index("expenses_period_idx").on(t.period),
     index("expenses_spent_on_idx").on(t.spentOn),
     index("expenses_category_idx").on(t.categoryId),
+    index("expenses_account_idx").on(t.accountId),
   ],
 );
+
+/**
+ * Dónde está la plata: Efectivo, Banco, QR, billetera…
+ * openingBalance es lo que había en la cuenta antes de empezar a usar la app;
+ * el saldo actual se calcula sumándole los ingresos y restándole los gastos.
+ */
+export const accounts = pgTable("accounts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  icon: text("icon").notNull().default("💵"),
+  color: text("color").notNull().default("#10794f"),
+  openingBalance: numeric("opening_balance", { precision: 12, scale: 2 })
+    .notNull()
+    .default("0"),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /**
  * Los ingresos tienen su propia lista de categorías (Sueldo, Negocio, Ventas…),
@@ -150,17 +171,21 @@ export const incomes = pgTable(
       .notNull()
       .references(() => incomeCategories.id, { onDelete: "restrict" }),
     amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    /** A qué cuenta entró la plata. */
+    accountId: integer("account_id").references(() => accounts.id, { onDelete: "set null" }),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("incomes_period_idx").on(t.period),
     index("incomes_received_on_idx").on(t.receivedOn),
+    index("incomes_account_idx").on(t.accountId),
   ],
 );
 
 export type Category = typeof categories.$inferSelect;
 export type IncomeCategory = typeof incomeCategories.$inferSelect;
+export type Account = typeof accounts.$inferSelect;
 export type Income = typeof incomes.$inferSelect;
 export type Subcategory = typeof subcategories.$inferSelect;
 export type Product = typeof products.$inferSelect;

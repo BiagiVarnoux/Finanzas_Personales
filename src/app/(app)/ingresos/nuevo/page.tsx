@@ -2,7 +2,7 @@ import Link from "next/link";
 import { IncomeForm } from "@/components/income-form";
 import { PageHeader } from "@/components/ui";
 import { currentPeriod, isValidPeriod, periodRange, todayISO } from "@/lib/period";
-import { getIncomeCategories } from "@/lib/queries";
+import { getAccounts, getIncomeCategories } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export default async function NewIncomePage({
 }) {
   const { mes } = await searchParams;
   const period = isValidPeriod(mes) ? mes : currentPeriod();
-  const categories = await getIncomeCategories();
+  const [categories, accounts] = await Promise.all([getIncomeCategories(), getAccounts()]);
 
   // Si estás mirando otro mes, la fecha por defecto cae en ese mes, no en hoy.
   const today = todayISO();
@@ -32,12 +32,14 @@ export default async function NewIncomePage({
       <main className="mx-auto max-w-lg px-4 py-4">
         <IncomeForm
           categories={categories}
+          accounts={accounts}
           initial={{
             description: "",
             categoryId: null,
             amount: 0,
             receivedOn: defaultDate,
             note: "",
+            accountId: accounts.length === 1 ? accounts[0].id : null,
           }}
         />
       </main>

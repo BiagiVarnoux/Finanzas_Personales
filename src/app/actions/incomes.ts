@@ -8,6 +8,7 @@ import { incomeCategories, incomes } from "@/db/schema";
 import { money, parseDecimal, parseId, parseText } from "@/lib/parse";
 import { isValidPeriod, periodOf, todayISO } from "@/lib/period";
 import type { FormState } from "./expenses";
+import { resolveAccount } from "./accounts";
 
 function refresh() {
   revalidatePath("/", "layout");
@@ -54,6 +55,7 @@ export async function saveIncome(_prev: FormState, formData: FormData): Promise<
     description,
     categoryId,
     amount: money(amount),
+    accountId: await resolveAccount(formData),
     note: parseText(formData.get("note")) || null,
   };
 

@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { categories, expenses, products } from "@/db/schema";
 import { money, parseDecimal, parseId, parseText, quantity } from "@/lib/parse";
 import { isValidPeriod, periodOf, todayISO } from "@/lib/period";
+import { resolveAccount } from "./accounts";
 
 export type FormState = { error?: string; ok?: boolean };
 
@@ -89,6 +90,7 @@ export async function saveExpense(_prev: FormState, formData: FormData): Promise
     unit,
     unitPrice: money(qty > 0 ? amount / qty : amount),
     amount: money(amount),
+    accountId: await resolveAccount(formData),
     note,
   };
 

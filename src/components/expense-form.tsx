@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { saveExpense, type FormState } from "@/app/actions/expenses";
 import { bs, toNumber } from "@/lib/format";
-import type { CategoryWithSubs, ProductRow } from "@/lib/queries";
+import type { AccountRow, CategoryWithSubs, ProductRow } from "@/lib/queries";
 import { CategoryPicker } from "./category-picker";
 import { SearchIcon } from "./icons";
 
@@ -21,16 +21,19 @@ export type ExpenseInitial = {
   amount: number;
   spentOn: string;
   note: string;
+  accountId: number | null;
 };
 
 export function ExpenseForm({
   products,
   categories,
+  accounts,
   frequent,
   initial,
 }: {
   products: ProductRow[];
   categories: CategoryWithSubs[];
+  accounts: AccountRow[];
   frequent: ProductRow[];
   initial: ExpenseInitial;
 }) {
@@ -42,6 +45,7 @@ export function ExpenseForm({
   const [unit, setUnit] = useState(initial.unit);
   const [categoryId, setCategoryId] = useState<number | null>(initial.categoryId);
   const [subcategoryId, setSubcategoryId] = useState<number | null>(initial.subcategoryId);
+  const [accountId, setAccountId] = useState<number | null>(initial.accountId);
   const [qty, setQty] = useState(String(initial.quantity || 1));
   const [price, setPrice] = useState(initial.unitPrice ? String(initial.unitPrice) : "");
   const [total, setTotal] = useState(initial.amount ? String(initial.amount) : "");
@@ -256,6 +260,21 @@ export function ExpenseForm({
           </select>
         </Field>
       )}
+
+      <CategoryPicker
+        categories={accounts}
+        value={accountId}
+        onChange={setAccountId}
+        label="¿Con qué pagaste?"
+        emptyLabel="Sin especificar"
+        defaultIcon="💵"
+        createLabel="Crear cuenta nueva…"
+        namePlaceholder="Efectivo, Banco, QR…"
+        fieldName="accountId"
+        newNameField="newAccountName"
+        newIconField="newAccountIcon"
+        optional
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Fecha">
